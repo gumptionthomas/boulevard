@@ -98,6 +98,64 @@ func drawCover(pdf *fpdf.Fpdf, c Cover) error {
 // text quietly drawn past the sign's border.
 const signNameMaxLines = 2
 
+// signTextColumn is where the sign's text starts and how much width it has:
+// from just right of the QR to the sign's own right border. Both
+// drawBrowseSign and ValidateSignName read the geometry from here, so the
+// pre-flight check and the render-time backstop can never measure against
+// different widths.
+func signTextColumn(r Rect) (x, w float64) {
+	x = r.X + 20 + SignQR + 20
+	return x, r.X + r.W - x
+}
+
+// signNameFont selects the face the browse sign sets the library name in.
+// Measuring against any other face would measure the wrong thing.
+func signNameFont(pdf *fpdf.Fpdf) { pdf.SetFont("Times", "B", 14) }
+
+// ValidateSignName reports whether name fits the browse sign's two-line
+// budget, measured against a throwaway document rather than the one being
+// rendered.
+//
+// This exists so the CLI can refuse a too-long name as a --name validation
+// error, before the DNS check, the confirmation prompt, and — crucially —
+// before a library and twelve tokens are committed to the database. The
+// same check still runs inside drawBrowseSign as a backstop for any caller
+// that skips this one.
+func ValidateSignName(name string) error {
+	pdf := fpdf.New("P", "pt", "Letter", "")
+	signNameFont(pdf)
+	_, w := signTextColumn(Rect{W: SignW})
+
+	lines, err := wrapToWidth(pdf, name, w)
+	if err != nil {
+		return err
+	}
+	if len(lines) <= signNameMaxLines {
+		return nil
+	}
+	return fmt.Errorf("%q is too long for the browse sign (about %d characters fit). Pass a shorter --name",
+		name, signNameBudget(pdf, name, w))
+}
+
+// signNameBudget is the longest prefix of name, in characters, that still
+// fits the sign. Reporting a real measurement beats quoting a constant: the
+// budget depends on the letters, since "MMM" is far wider than "lll" at the
+// same count.
+func signNameBudget(pdf *fpdf.Fpdf, name string, w float64) int {
+	runes := []rune(name)
+	lo, hi := 0, len(runes) // lo always fits, hi never does
+	for hi-lo > 1 {
+		mid := (lo + hi) / 2
+		lines, err := wrapToWidth(pdf, string(runes[:mid]), w)
+		if err != nil || len(lines) > signNameMaxLines {
+			hi = mid
+			continue
+		}
+		lo = mid
+	}
+	return lo
+}
+
 // drawBrowseSign paints the permanent, mounted artifact: light, landscape,
 // undated — deliberately unlike the dark, dated monthly card. Two QR codes
 // that looked alike would confuse a visitor about which does what.
@@ -113,17 +171,15 @@ func drawBrowseSign(pdf *fpdf.Fpdf, r Rect, payload, libraryName string) error {
 	if err != nil {
 		return fmt.Errorf("browse sign qr: %w", err)
 	}
-	qrX := r.X + 20
-	drawQR(pdf, code, qrX, r.Y+(r.H-SignQR)/2, SignQR)
+	drawQR(pdf, code, r.X+20, r.Y+(r.H-SignQR)/2, SignQR)
 
-	tx := qrX + SignQR + 20
 	// textW is the true available width for every text line in the sign:
 	// from the text column to the sign's own right border. Nothing drawn
 	// here may exceed it without running past the border.
-	textW := r.X + r.W - tx
+	tx, textW := signTextColumn(r)
 
 	pdf.SetTextColor(inkR, inkG, inkB)
-	pdf.SetFont("Times", "B", 14)
+	signNameFont(pdf)
 	// The name wraps to at most signNameMaxLines lines at the width the sign
 	// actually has. A name that still doesn't fit is refused here rather
 	// than drawn past the border — a steward needs to know that at
@@ -134,10 +190,12 @@ func drawBrowseSign(pdf *fpdf.Fpdf, r Rect, payload, libraryName string) error {
 	const nameLineH = 16.0
 	nameLines, err := wrapToWidth(pdf, libraryName, textW)
 	if err != nil {
-		return fmt.Errorf("browse sign: %w", err)
+		return err
 	}
+	// The caller (drawCover) already prefixes "browse sign: ", so this must
+	// not say it again.
 	if len(nameLines) > signNameMaxLines {
-		return fmt.Errorf("browse sign: library name %q needs %d lines at %.1fpt of width, want at most %d",
+		return fmt.Errorf("library name %q needs %d lines at %.1fpt of width, want at most %d — call ValidateSignName before generating",
 			libraryName, len(nameLines), textW, signNameMaxLines)
 	}
 	nameTop := r.Y + 56 - float64(len(nameLines)-1)*nameLineH

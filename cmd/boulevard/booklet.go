@@ -64,6 +64,16 @@ func runBooklet(args []string) int {
 	}
 	o.installDate = boulevard.DateFromTime(time.Now())
 
+	// A name too long for the permanent browse sign is a --name problem, so
+	// it is caught here with the other usage errors — before the DNS lookup,
+	// before the prompt, and above all before a library and twelve tokens
+	// are committed. Discovering it at render time left a database behind
+	// and no PDF.
+	if err := booklet.ValidateSignName(o.name); err != nil {
+		fmt.Fprintf(os.Stderr, "  x  %v\n", err)
+		return exitUsage
+	}
+
 	if !o.skipDNS {
 		if err := checkDNS(host); err != nil {
 			fmt.Fprintf(os.Stderr, "  x  %v\n     Fix the URL, or pass --skip-dns if your DNS isn't live yet.\n", err)

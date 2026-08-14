@@ -151,6 +151,31 @@ func TestRunBookletRefusesToOverwriteOutput(t *testing.T) {
 	}
 }
 
+// A library name too long for the permanent browse sign is a --name
+// problem, not an I/O one, and it must be caught before anything is
+// written. Discovering it at render time used to leave a database holding a
+// library and twelve tokens behind, with no PDF to show for it.
+func TestRunBookletRefusesALongNameBeforeWritingAnything(t *testing.T) {
+	dir := t.TempDir()
+	db := filepath.Join(dir, "b.db")
+	out := filepath.Join(dir, "b.pdf")
+	code := runBooklet([]string{
+		"--name", "Highland Park Neighborhood Little Free Library",
+		"--location", "Highland Park",
+		"--base-url", "https://boulevard.example.org",
+		"--yes", "--skip-dns", "--db", db, "--out", out,
+	})
+	if code != exitUsage {
+		t.Errorf("exit code = %d, want %d — a name too long for the sign is a usage error, not I/O", code, exitUsage)
+	}
+	if _, err := os.Stat(db); err == nil {
+		t.Error("a refused run left a database behind")
+	}
+	if _, err := os.Stat(out); err == nil {
+		t.Error("a refused run left an output file behind")
+	}
+}
+
 func TestRunBookletEndToEnd(t *testing.T) {
 	dir := t.TempDir()
 	out := filepath.Join(dir, "booklet.pdf")
