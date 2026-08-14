@@ -220,6 +220,9 @@ func TestRunBookletRecoversFromAnInterruptedFirstRun(t *testing.T) {
 	if !strings.Contains(stdout, "no cards") {
 		t.Errorf("output does not say the library was missing its cards:\n%s", stdout)
 	}
+	if !strings.Contains(stdout, "Repaired library the-fairview-boulevard") {
+		t.Errorf("summary does not report the repair:\n%s", stdout)
+	}
 	if _, err := os.Stat(out); err != nil {
 		t.Errorf("no PDF written: %v", err)
 	}

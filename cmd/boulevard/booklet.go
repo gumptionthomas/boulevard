@@ -172,7 +172,10 @@ func runBooklet(args []string) int {
 	// database that already existed is exactly the reassurance a steward who
 	// mistyped --name must not be given.
 	verb := "Reprinted"
-	if created {
+	switch {
+	case created && peek.found:
+		verb = "Repaired" // the row was already there; only its cards are new
+	case created:
 		verb = "Created"
 	}
 	fmt.Printf("\n  %s library %s\n  %s  (%d cards)\n  %s\n\n  Print it, cut the cards, and scan one before you mount anything.\n\n",
