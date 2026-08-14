@@ -101,6 +101,11 @@ func drawBrowseSign(pdf *fpdf.Fpdf, r Rect, payload, libraryName string) {
 	drawQR(pdf, code, qrX, r.Y+(r.H-SignQR)/2, SignQR)
 
 	tx := qrX + SignQR + 20
+	// textW is the true available width for every text line in the sign:
+	// from the text column to the sign's own right border. Nothing drawn
+	// here may exceed it without running past the border.
+	textW := r.X + r.W - tx
+
 	pdf.SetTextColor(inkR, inkG, inkB)
 	pdf.SetFont("Times", "B", 14)
 	pdf.Text(tx, r.Y+56, toCP1252(pdf, libraryName))
@@ -108,8 +113,14 @@ func drawBrowseSign(pdf *fpdf.Fpdf, r Rect, payload, libraryName string) {
 	pdf.SetFont("Helvetica", "B", 9)
 	pdf.Text(tx, r.Y+78, toCP1252(pdf, SignVerb))
 
+	// SignSubtitle is longer than fits on one line at the smallest
+	// comfortable size for a sign meant to be read at the box (8pt), so it
+	// wraps via MultiCell rather than shrinking further. The break point is
+	// whatever textW dictates — SignSubtitle is copy mandated verbatim
+	// elsewhere, so it is never split by hand.
 	pdf.SetFont("Helvetica", "", 8)
 	pdf.SetTextColor(100, 97, 89)
-	pdf.Text(tx, r.Y+94, toCP1252(pdf, SignSubtitle))
+	pdf.SetXY(tx, r.Y+86)
+	pdf.MultiCell(textW, 10, toCP1252(pdf, SignSubtitle), "", "L", false)
 	pdf.SetTextColor(inkR, inkG, inkB)
 }
