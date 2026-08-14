@@ -430,6 +430,38 @@ func TestRunBookletAcceptsTheYesShorthand(t *testing.T) {
 	}
 }
 
+// The database holds every token secret in plaintext, and a secret is the
+// write credential for the shelf. Every card in the PDF carries one in its
+// QR. On a shared host, 0644 on either file hands any local account
+// leave/take rights without ever standing at the box.
+func TestRunBookletWritesOwnerOnlyFiles(t *testing.T) {
+	dir := t.TempDir()
+	db := filepath.Join(dir, "b.db")
+	out := filepath.Join(dir, "b.pdf")
+	// Start from a world-readable output file so the --force path, where
+	// WriteFile keeps the existing mode, is covered too.
+	if err := os.WriteFile(out, []byte("stale"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	code := runBooklet([]string{
+		"--name", "The Fairview Boulevard", "--location", "4th & Fairview",
+		"--base-url", "https://boulevard.example.org",
+		"--yes", "--skip-dns", "--force", "--db", db, "--out", out,
+	})
+	if code != exitOK {
+		t.Fatalf("exit code = %d, want %d", code, exitOK)
+	}
+	for _, path := range []string{db, out} {
+		info, err := os.Stat(path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got := info.Mode().Perm(); got != 0o600 {
+			t.Errorf("%s mode = %#o, want %#o; it carries token secrets", filepath.Base(path), got, 0o600)
+		}
+	}
+}
+
 // captureStdout collects what runBooklet prints. The command writes to
 // os.Stdout directly — what a steward sees is part of its contract, so the
 // tests read the same stream a steward does.

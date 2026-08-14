@@ -147,8 +147,16 @@ func runBooklet(args []string) int {
 		fmt.Fprintf(os.Stderr, "  x  %v\n", err)
 		return exitIO
 	}
-	if err := os.WriteFile(o.out, pdfBytes, 0o644); err != nil {
+	// Owner-only, like the database: every card in this PDF carries a token
+	// secret in its QR, and a secret is the write credential for the shelf.
+	// The explicit Chmod covers --force, where WriteFile keeps the mode the
+	// existing file already had.
+	if err := os.WriteFile(o.out, pdfBytes, store.FileMode); err != nil {
 		fmt.Fprintf(os.Stderr, "  x  write %s: %v\n", o.out, err)
+		return exitIO
+	}
+	if err := os.Chmod(o.out, store.FileMode); err != nil {
+		fmt.Fprintf(os.Stderr, "  x  restrict %s: %v\n", o.out, err)
 		return exitIO
 	}
 

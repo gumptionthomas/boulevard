@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/rand"
 	"errors"
+	"os"
 	"path/filepath"
 	"testing"
 	"time"
@@ -217,6 +218,53 @@ func TestInsertTokensIsAtomic(t *testing.T) {
 	}
 	if len(got) != 0 {
 		t.Errorf("found %d tokens after a failed insert; the batch must roll back entirely", len(got))
+	}
+}
+
+// Secrets are stored in plaintext (DESIGN.md §4) and a secret is the write
+// credential for the shelf, so the file must never be readable by other
+// accounts on the host — including a database an older build left at 0644.
+func TestOpenRestrictsTheDatabaseToItsOwner(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "perm.db")
+
+	s, err := Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	s.Close()
+	assertOwnerOnly(t, path)
+
+	if err := os.Chmod(path, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	s, err = Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s.Close()
+	assertOwnerOnly(t, path)
+
+	// The write-ahead log holds the same secrets as the database proper.
+	ctx := context.Background()
+	if err := s.CreateLibrary(ctx, makeLibrary(t)); err != nil {
+		t.Fatal(err)
+	}
+	if info, err := os.Stat(path + "-wal"); err == nil {
+		if got := info.Mode().Perm(); got&0o077 != 0 {
+			t.Errorf("%s-wal mode = %#o; the WAL carries the same secrets", path, got)
+		}
+	}
+}
+
+func assertOwnerOnly(t *testing.T, path string) {
+	t.Helper()
+	info, err := os.Stat(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := info.Mode().Perm(); got != FileMode {
+		t.Errorf("%s mode = %#o, want %#o", path, got, FileMode)
 	}
 }
 
