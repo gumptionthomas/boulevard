@@ -45,7 +45,7 @@ func drawCard(pdf *fpdf.Fpdf, c PlacedCard) error {
 	tx := c.Rect.X + TextColX
 
 	pdf.SetFont("Times", "B", 15)
-	pdf.Text(tx, bodyY+38, toCP1252(pdf, c.Month))
+	pdf.Text(tx, bodyY+38, toCP1252(c.Month))
 
 	pdf.SetFont("Times", "", 9.5)
 	pdf.SetTextColor(90, 88, 80)
@@ -60,7 +60,7 @@ func drawCard(pdf *fpdf.Fpdf, c PlacedCard) error {
 	// En dash: core fonts carry no encoding of their own, so this must go
 	// through toCP1252 or it prints as mojibake — confirmed by rendering
 	// and eyeballing the golden PDF during development.
-	pdf.Text(tx, bodyY+74, toCP1252(pdf, fmt.Sprintf("%s – %s", shortDate(c.From), shortDate(c.Until))))
+	pdf.Text(tx, bodyY+74, toCP1252(fmt.Sprintf("%s – %s", shortDate(c.From), shortDate(c.Until))))
 
 	pdf.SetFont("Helvetica", "", 6.5)
 	pdf.SetTextColor(120, 117, 108)

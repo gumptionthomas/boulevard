@@ -3,6 +3,7 @@ package booklet
 import (
 	"bytes"
 	"crypto/rand"
+	"io"
 	"testing"
 	"time"
 
@@ -10,9 +11,16 @@ import (
 	"github.com/gumptionthomas/boulevard/internal/tokens"
 )
 
-func testInput(t *testing.T) Input {
+// inputFrom builds the booklet input every test in this package uses,
+// drawing its secrets from entropy.
+//
+// There is exactly one of these on purpose. Two near-identical builders —
+// one for the golden file, one for everything else — meant the golden could
+// be edited to test a different base URL or install date from the rest of
+// the suite, silently, and go on passing.
+func inputFrom(t *testing.T, entropy io.Reader) Input {
 	t.Helper()
-	id, err := boulevard.NewLibraryID(rand.Reader)
+	id, err := boulevard.NewLibraryID(entropy)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -24,7 +32,7 @@ func testInput(t *testing.T) Input {
 	periods := tokens.Periods(boulevard.NewDate(2026, time.August, 14), tokens.PeriodCount)
 	toks := make([]boulevard.Token, 0, len(periods))
 	for _, p := range periods {
-		secret, err := tokens.NewSecret(rand.Reader)
+		secret, err := tokens.NewSecret(entropy)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -40,37 +48,16 @@ func testInput(t *testing.T) Input {
 	}
 }
 
-// fixedInput mirrors testInput but draws secrets from a fixed byte source so
-// the golden PDF is stable across runs.
+func testInput(t *testing.T) Input {
+	t.Helper()
+	return inputFrom(t, rand.Reader)
+}
+
+// fixedInput is testInput with a fixed byte source, so the golden PDF is
+// stable across runs.
 func fixedInput(t *testing.T) Input {
 	t.Helper()
-	src := bytes.NewReader(bytes.Repeat([]byte("boulevard-golden!"), 64))
-	id, err := boulevard.NewLibraryID(src)
-	if err != nil {
-		t.Fatal(err)
-	}
-	lib := boulevard.Library{
-		ID: id, Slug: "fairview", Name: "The Fairview Boulevard",
-		LocationLabel: "4th & Fairview, Minneapolis",
-		BaseURL:       "https://boulevard.example.org",
-	}
-	periods := tokens.Periods(boulevard.NewDate(2026, time.August, 14), tokens.PeriodCount)
-	toks := make([]boulevard.Token, 0, len(periods))
-	for _, p := range periods {
-		secret, err := tokens.NewSecret(src)
-		if err != nil {
-			t.Fatal(err)
-		}
-		toks = append(toks, boulevard.Token{
-			LibraryID: id, Secret: secret, PeriodIndex: p.Index,
-			ValidFrom: p.From, ValidUntil: p.Until, State: boulevard.TokenPending,
-		})
-	}
-	return Input{
-		Library: lib, Tokens: toks,
-		SourceURL: "https://github.com/gumptionthomas/boulevard",
-		BuildLine: "boulevard 0.1.0 (abc1234)",
-	}
+	return inputFrom(t, bytes.NewReader(bytes.Repeat([]byte("boulevard-golden!"), 64)))
 }
 
 func TestPlanHasTwoSheets(t *testing.T) {

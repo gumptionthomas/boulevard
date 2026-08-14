@@ -61,7 +61,7 @@ func BuildPlan(in Input) (Plan, error) {
 
 	sheet1 := Sheet{Cards: make([]PlacedCard, 0, CardsPerSheet)}
 	for i := 0; i < CardsPerSheet; i++ {
-		sheet1.Cards = append(sheet1.Cards, placeCard(toks[i], CardRect(i), in.Library.BaseURL))
+		sheet1.Cards = append(sheet1.Cards, placeCard(toks[i], CardRect(i), in.Library.BaseURL, len(toks)))
 	}
 
 	// Sheet 2: the cover fills rows 1..4, the remaining cards sit in row 5.
@@ -79,13 +79,16 @@ func BuildPlan(in Input) (Plan, error) {
 	}
 	for i := CardsPerSheet; i < len(toks); i++ {
 		slot := CardsPerSheet - Cols + (i - CardsPerSheet) // final row of the grid
-		sheet2.Cards = append(sheet2.Cards, placeCard(toks[i], CardRect(slot), in.Library.BaseURL))
+		sheet2.Cards = append(sheet2.Cards, placeCard(toks[i], CardRect(slot), in.Library.BaseURL, len(toks)))
 	}
 
 	return Plan{Sheets: []Sheet{sheet1, sheet2}}, nil
 }
 
-func placeCard(tok boulevard.Token, r Rect, baseURL string) PlacedCard {
+// placeCard positions one token's card. "of" is the size of the booklet
+// actually being laid out, not the constant, so a booklet of some other
+// length can never print "CARD 13 OF 12".
+func placeCard(tok boulevard.Token, r Rect, baseURL string, of int) PlacedCard {
 	return PlacedCard{
 		Rect:    r,
 		Month:   tok.ValidFrom.MonthName(),
@@ -93,7 +96,7 @@ func placeCard(tok boulevard.Token, r Rect, baseURL string) PlacedCard {
 		From:    tok.ValidFrom,
 		Until:   tok.ValidUntil,
 		Index:   tok.PeriodIndex,
-		Of:      tokens.PeriodCount,
+		Of:      of,
 		Payload: baseURL + "/s/" + tok.Secret,
 	}
 }

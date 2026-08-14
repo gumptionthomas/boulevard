@@ -18,12 +18,14 @@ func SignRect(cover Rect) Rect {
 	}
 }
 
+// installSteps carries no step numbers: they are generated at render time,
+// so the list can be reordered or added to without editing every string.
 var installSteps = []string{
-	"1.  Cut the cards apart along the hairlines. Keep them in order.",
-	"2.  Tape the current month's card inside the box door.",
-	"3.  On the first of each month, swap in the next card.",
-	"4.  While you are there, look at the hinge, the sign, and the shelf.",
-	"5.  Mount the browse sign where it can be read from the sidewalk.",
+	"Cut the cards apart along the hairlines. Keep them in order.",
+	"Tape the current month's card inside the box door.",
+	"On the first of each month, swap in the next card.",
+	"While you are there, look at the hinge, the sign, and the shelf.",
+	"Mount the browse sign where it can be read from the sidewalk.",
 }
 
 func drawCover(pdf *fpdf.Fpdf, c Cover) error {
@@ -37,11 +39,11 @@ func drawCover(pdf *fpdf.Fpdf, c Cover) error {
 	// toCP1252 before Text() — see render.go's toCP1252 doc comment.
 	pdf.SetTextColor(inkR, inkG, inkB)
 	pdf.SetFont("Times", "B", 20)
-	pdf.Text(left, c.Rect.Y+44, toCP1252(pdf, c.LibraryName))
+	pdf.Text(left, c.Rect.Y+44, toCP1252(c.LibraryName))
 
 	pdf.SetFont("Helvetica", "", 10)
 	pdf.SetTextColor(110, 107, 98)
-	pdf.Text(left, c.Rect.Y+64, toCP1252(pdf, c.LocationLabel))
+	pdf.Text(left, c.Rect.Y+64, toCP1252(c.LocationLabel))
 
 	// The browse sign is the one artifact meant to be mounted permanently
 	// and read by strangers — refuse to produce it wrong rather than print
@@ -60,7 +62,7 @@ func drawCover(pdf *fpdf.Fpdf, c Cover) error {
 	pdf.SetFont("Helvetica", "", 9)
 	pdf.SetTextColor(60, 58, 52)
 	for i, step := range installSteps {
-		pdf.Text(left, instrY+18+float64(i)*15, step)
+		pdf.Text(left, instrY+18+float64(i)*15, fmt.Sprintf("%d.  %s", i+1, step))
 	}
 
 	// The sleeve warning. DESIGN.md: a printed sign outlives the hosting
@@ -72,12 +74,12 @@ func drawCover(pdf *fpdf.Fpdf, c Cover) error {
 	pdf.SetFont("Helvetica", "I", 8.5)
 	pdf.SetTextColor(110, 107, 98)
 	pdf.SetXY(left, warnY)
-	pdf.MultiCell(c.Rect.W-56, 11, toCP1252(pdf, SleeveWarning), "", "L", false)
+	pdf.MultiCell(c.Rect.W-56, 11, toCP1252(SleeveWarning), "", "L", false)
 
 	// Signage line, set apart.
 	pdf.SetFont("Times", "", 13)
 	pdf.SetTextColor(inkR, inkG, inkB)
-	signage := toCP1252(pdf, SignageLine)
+	signage := toCP1252(SignageLine)
 	sw := pdf.GetStringWidth(signage)
 	pdf.Text(c.Rect.X+(c.Rect.W-sw)/2, c.Rect.Y+c.Rect.H-52, signage)
 
@@ -87,7 +89,7 @@ func drawCover(pdf *fpdf.Fpdf, c Cover) error {
 	// plain ASCII.
 	pdf.SetFont("Helvetica", "", 7)
 	pdf.SetTextColor(140, 137, 128)
-	pdf.Text(left, c.Rect.Y+c.Rect.H-16, toCP1252(pdf, c.BuildLine+"  ·  source: "+c.SourceURL))
+	pdf.Text(left, c.Rect.Y+c.Rect.H-16, toCP1252(c.BuildLine+"  ·  source: "+c.SourceURL))
 	pdf.SetTextColor(inkR, inkG, inkB)
 	return nil
 }
@@ -204,7 +206,7 @@ func drawBrowseSign(pdf *fpdf.Fpdf, r Rect, payload, libraryName string) error {
 	}
 
 	pdf.SetFont("Helvetica", "B", 9)
-	pdf.Text(tx, r.Y+78, toCP1252(pdf, SignVerb))
+	pdf.Text(tx, r.Y+78, toCP1252(SignVerb))
 
 	// SignSubtitle breaks at its sentence boundary — "...anytime." / "No
 	// code needed." — which is how the original design mockup set it, and
@@ -220,7 +222,7 @@ func drawBrowseSign(pdf *fpdf.Fpdf, r Rect, payload, libraryName string) error {
 	const subLineH = 10.0
 	subTop := r.Y + 86
 	if first, rest, ok := splitAtSentence(SignSubtitle); ok {
-		encFirst, encRest := toCP1252(pdf, first), toCP1252(pdf, rest)
+		encFirst, encRest := toCP1252(first), toCP1252(rest)
 		if pdf.GetStringWidth(encFirst) <= textW && pdf.GetStringWidth(encRest) <= textW {
 			pdf.Text(tx, subTop+8, encFirst)
 			pdf.Text(tx, subTop+8+subLineH, encRest)
@@ -229,7 +231,7 @@ func drawBrowseSign(pdf *fpdf.Fpdf, r Rect, payload, libraryName string) error {
 		}
 	}
 	pdf.SetXY(tx, subTop)
-	pdf.MultiCell(textW, subLineH, toCP1252(pdf, SignSubtitle), "", "L", false)
+	pdf.MultiCell(textW, subLineH, toCP1252(SignSubtitle), "", "L", false)
 	pdf.SetTextColor(inkR, inkG, inkB)
 	return nil
 }
@@ -241,7 +243,7 @@ func wrapToWidth(pdf *fpdf.Fpdf, s string, w float64) ([]string, error) {
 	if w <= 0 {
 		return nil, fmt.Errorf("wrap width %.2f is not positive", w)
 	}
-	raw := pdf.SplitLines([]byte(toCP1252(pdf, s)), w)
+	raw := pdf.SplitLines([]byte(toCP1252(s)), w)
 	lines := make([]string, len(raw))
 	for i, l := range raw {
 		lines[i] = string(l)

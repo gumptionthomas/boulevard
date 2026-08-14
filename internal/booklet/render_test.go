@@ -81,6 +81,22 @@ func TestRenderGolden(t *testing.T) {
 	}
 }
 
+// The translator is built from a throwaway document, so it works with no
+// render in flight and cannot depend on which *Fpdf happened to ask first.
+func TestToCP1252TranslatesBeyondASCII(t *testing.T) {
+	const dash = "Aug 14 – Aug 31" // U+2013, which core fonts cannot address directly
+	got := toCP1252(dash)
+	if got == dash {
+		t.Errorf("toCP1252(%q) returned it unchanged; the en dash would print as mojibake", dash)
+	}
+	if len(got) != len([]rune(dash)) {
+		t.Errorf("toCP1252(%q) = %q; cp1252 is one byte per character", dash, got)
+	}
+	if plain := "CARD 1 OF 12"; toCP1252(plain) != plain {
+		t.Errorf("toCP1252(%q) = %q; ASCII must pass through unchanged", plain, toCP1252(plain))
+	}
+}
+
 func TestRenderRejectsAnEmptyPlan(t *testing.T) {
 	if _, err := fixedRenderer().Render(Plan{}); err == nil {
 		t.Error("Render(Plan{}) succeeded, want an error")

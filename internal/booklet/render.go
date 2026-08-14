@@ -11,7 +11,7 @@ import (
 )
 
 // Ink and paper. Kept as a palette so the card and the sign stay consistent.
-var (
+const (
 	inkR, inkG, inkB       = 20, 19, 13    // #14130D
 	paperR, paperG, paperB = 253, 252, 249 // #FDFCF9
 	ruleR, ruleG, ruleB    = 201, 195, 178
@@ -93,20 +93,26 @@ func drawQR(pdf *fpdf.Fpdf, c Code, x, y, size float64) {
 // of their own, so any character past plain ASCII — an en dash in a date
 // range, an accented library name — must be mapped to its cp1252 byte
 // before it reaches Text(), or it prints as mojibake instead of the glyph.
-// The mapping table ships inside fpdf as a static embedded resource, so it
-// is built once and reused; that keeps translation a pure function, with
-// nothing ambient to leak into golden output.
-var (
-	cp1252Once sync.Once
-	cp1252Fn   func(string) string
-)
+//
+// The mapping table ships inside fpdf as a static embedded resource and
+// depends on nothing about the document being drawn, so it is built once
+// from a throwaway document of its own. Building it from whichever *Fpdf
+// happened to call first made the parameter a lie on every later call, and
+// left a nil function — and a panic on every use — if it ever failed.
+var cp1252 = sync.OnceValue(func() func(string) string {
+	fn := fpdf.New("P", "pt", "Letter", "").UnicodeTranslatorFromDescriptor("")
+	if fn == nil {
+		// fpdf reports failure by leaving the translator nil. Pass text
+		// through rather than panic: mojibake in one accented name is a far
+		// better outcome than no booklet at all.
+		return func(s string) string { return s }
+	}
+	return fn
+})
 
 // toCP1252 translates s for display with a core font. Safe to call with
 // plain ASCII text too — it passes through unchanged.
-func toCP1252(pdf *fpdf.Fpdf, s string) string {
-	cp1252Once.Do(func() { cp1252Fn = pdf.UnicodeTranslatorFromDescriptor("") })
-	return cp1252Fn(s)
-}
+func toCP1252(s string) string { return cp1252()(s) }
 
 // drawTracked renders letterspaced text. fpdf has no native tracking, so
 // characters are placed individually — which also means each character can
@@ -114,7 +120,7 @@ func toCP1252(pdf *fpdf.Fpdf, s string) string {
 func drawTracked(pdf *fpdf.Fpdf, x, y float64, text string, tracking float64) {
 	cur := x
 	for _, ch := range text {
-		s := toCP1252(pdf, string(ch))
+		s := toCP1252(string(ch))
 		pdf.Text(cur, y, s)
 		cur += pdf.GetStringWidth(s) + tracking
 	}
@@ -124,7 +130,7 @@ func drawTracked(pdf *fpdf.Fpdf, x, y float64, text string, tracking float64) {
 func trackedWidth(pdf *fpdf.Fpdf, text string, tracking float64) float64 {
 	var w float64
 	for _, ch := range text {
-		w += pdf.GetStringWidth(toCP1252(pdf, string(ch))) + tracking
+		w += pdf.GetStringWidth(toCP1252(string(ch))) + tracking
 	}
 	if w > 0 {
 		w -= tracking // no trailing gap
