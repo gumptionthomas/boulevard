@@ -36,3 +36,30 @@ func TestCoverRendersWithoutError(t *testing.T) {
 		t.Errorf("output is %d bytes, too small to contain a rendered cover", len(out))
 	}
 }
+
+func TestTooLongLibraryNameProducesAnError(t *testing.T) {
+	in := testInput(t)
+	// Wraps to 3 lines on the browse sign at its 14pt Times Bold, well past
+	// the 2-line budget the sign's fixed height affords.
+	in.Library.Name = "North Fourteenth Street Little Free Library and Boulevard"
+	p, err := BuildPlan(in)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := fixedRenderer().Render(p); err == nil {
+		t.Error("Render succeeded with a library name too long for the browse sign, want an error")
+	}
+}
+
+func TestTwoLineLibraryNameRendersWithoutError(t *testing.T) {
+	in := testInput(t)
+	// Wraps to exactly 2 lines on the browse sign — within the budget.
+	in.Library.Name = "The Whittier Community Boulevard"
+	p, err := BuildPlan(in)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := fixedRenderer().Render(p); err != nil {
+		t.Errorf("Render: %v, want a two-line library name to fit the browse sign", err)
+	}
+}

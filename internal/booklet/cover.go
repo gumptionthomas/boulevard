@@ -1,6 +1,9 @@
 package booklet
 
 import (
+	"fmt"
+	"strings"
+
 	"github.com/go-pdf/fpdf"
 )
 
@@ -23,7 +26,7 @@ var installSteps = []string{
 	"5.  Mount the browse sign where it can be read from the sidewalk.",
 }
 
-func drawCover(pdf *fpdf.Fpdf, c Cover) {
+func drawCover(pdf *fpdf.Fpdf, c Cover) error {
 	pdf.SetFillColor(paperR, paperG, paperB)
 	pdf.Rect(c.Rect.X, c.Rect.Y, c.Rect.W, c.Rect.H, "F")
 
@@ -40,7 +43,13 @@ func drawCover(pdf *fpdf.Fpdf, c Cover) {
 	pdf.SetTextColor(110, 107, 98)
 	pdf.Text(left, c.Rect.Y+64, toCP1252(pdf, c.LocationLabel))
 
-	drawBrowseSign(pdf, SignRect(c.Rect), c.SignPayload, c.LibraryName)
+	// The browse sign is the one artifact meant to be mounted permanently
+	// and read by strangers — refuse to produce it wrong rather than print
+	// a library name running past its border, the same stance the base URL
+	// gets before any PDF is written at all.
+	if err := drawBrowseSign(pdf, SignRect(c.Rect), c.SignPayload, c.LibraryName); err != nil {
+		return fmt.Errorf("browse sign: %w", err)
+	}
 
 	// Instructions.
 	instrY := SignRect(c.Rect).Y + SignH + 40
@@ -80,12 +89,19 @@ func drawCover(pdf *fpdf.Fpdf, c Cover) {
 	pdf.SetTextColor(140, 137, 128)
 	pdf.Text(left, c.Rect.Y+c.Rect.H-16, toCP1252(pdf, c.BuildLine+"  ·  source: "+c.SourceURL))
 	pdf.SetTextColor(inkR, inkG, inkB)
+	return nil
 }
+
+// signNameMaxLines bounds how many lines the browse sign gives the library
+// name. Two lines fit the box with room to spare (see drawBrowseSign); a
+// name that still doesn't fit in two is a generation-time error rather than
+// text quietly drawn past the sign's border.
+const signNameMaxLines = 2
 
 // drawBrowseSign paints the permanent, mounted artifact: light, landscape,
 // undated — deliberately unlike the dark, dated monthly card. Two QR codes
 // that looked alike would confuse a visitor about which does what.
-func drawBrowseSign(pdf *fpdf.Fpdf, r Rect, payload, libraryName string) {
+func drawBrowseSign(pdf *fpdf.Fpdf, r Rect, payload, libraryName string) error {
 	pdf.SetFillColor(paperR, paperG, paperB)
 	pdf.Rect(r.X, r.Y, r.W, r.H, "F")
 
@@ -95,7 +111,7 @@ func drawBrowseSign(pdf *fpdf.Fpdf, r Rect, payload, libraryName string) {
 
 	code, err := Encode(payload)
 	if err != nil {
-		return // a plan that reached rendering already validated its payloads
+		return fmt.Errorf("browse sign qr: %w", err)
 	}
 	qrX := r.X + 20
 	drawQR(pdf, code, qrX, r.Y+(r.H-SignQR)/2, SignQR)
@@ -108,19 +124,83 @@ func drawBrowseSign(pdf *fpdf.Fpdf, r Rect, payload, libraryName string) {
 
 	pdf.SetTextColor(inkR, inkG, inkB)
 	pdf.SetFont("Times", "B", 14)
-	pdf.Text(tx, r.Y+56, toCP1252(pdf, libraryName))
+	// The name wraps to at most signNameMaxLines lines at the width the sign
+	// actually has. A name that still doesn't fit is refused here rather
+	// than drawn past the border — a steward needs to know that at
+	// generation time, not after the sign is screwed to the box. The block
+	// is anchored so its LAST line always sits at baseline r.Y+56: a
+	// one-line name sits there directly, a two-line name grows upward from
+	// it, so SignVerb and the subtitle below never have to move.
+	const nameLineH = 16.0
+	nameLines, err := wrapToWidth(pdf, libraryName, textW)
+	if err != nil {
+		return fmt.Errorf("browse sign: %w", err)
+	}
+	if len(nameLines) > signNameMaxLines {
+		return fmt.Errorf("browse sign: library name %q needs %d lines at %.1fpt of width, want at most %d",
+			libraryName, len(nameLines), textW, signNameMaxLines)
+	}
+	nameTop := r.Y + 56 - float64(len(nameLines)-1)*nameLineH
+	for i, line := range nameLines {
+		pdf.Text(tx, nameTop+float64(i)*nameLineH, line)
+	}
 
 	pdf.SetFont("Helvetica", "B", 9)
 	pdf.Text(tx, r.Y+78, toCP1252(pdf, SignVerb))
 
-	// SignSubtitle is longer than fits on one line at the smallest
-	// comfortable size for a sign meant to be read at the box (8pt), so it
-	// wraps via MultiCell rather than shrinking further. The break point is
-	// whatever textW dictates — SignSubtitle is copy mandated verbatim
-	// elsewhere, so it is never split by hand.
+	// SignSubtitle breaks at its sentence boundary — "...anytime." / "No
+	// code needed." — which is how the original design mockup set it, and
+	// reads better on a public sign than a purely width-driven wrap (which
+	// would orphan "needed." on its own line at this width). SignSubtitle
+	// stays one verbatim constant; the split happens here at render time,
+	// not as a second constant, so the spec-mandated string is never itself
+	// divided. If a future copy change removes the sentence boundary, or
+	// either half no longer fits textW, this falls back to the same
+	// width-driven wrap used everywhere else on the cover.
 	pdf.SetFont("Helvetica", "", 8)
 	pdf.SetTextColor(100, 97, 89)
-	pdf.SetXY(tx, r.Y+86)
-	pdf.MultiCell(textW, 10, toCP1252(pdf, SignSubtitle), "", "L", false)
+	const subLineH = 10.0
+	subTop := r.Y + 86
+	if first, rest, ok := splitAtSentence(SignSubtitle); ok {
+		encFirst, encRest := toCP1252(pdf, first), toCP1252(pdf, rest)
+		if pdf.GetStringWidth(encFirst) <= textW && pdf.GetStringWidth(encRest) <= textW {
+			pdf.Text(tx, subTop+8, encFirst)
+			pdf.Text(tx, subTop+8+subLineH, encRest)
+			pdf.SetTextColor(inkR, inkG, inkB)
+			return nil
+		}
+	}
+	pdf.SetXY(tx, subTop)
+	pdf.MultiCell(textW, subLineH, toCP1252(pdf, SignSubtitle), "", "L", false)
 	pdf.SetTextColor(inkR, inkG, inkB)
+	return nil
+}
+
+// wrapToWidth wraps s, translated for the font currently selected on pdf,
+// into lines no wider than w. The returned lines are already
+// cp1252-encoded — callers must draw them as-is, not translate them again.
+func wrapToWidth(pdf *fpdf.Fpdf, s string, w float64) ([]string, error) {
+	if w <= 0 {
+		return nil, fmt.Errorf("wrap width %.2f is not positive", w)
+	}
+	raw := pdf.SplitLines([]byte(toCP1252(pdf, s)), w)
+	lines := make([]string, len(raw))
+	for i, l := range raw {
+		lines[i] = string(l)
+	}
+	if len(lines) == 0 {
+		lines = []string{""}
+	}
+	return lines, nil
+}
+
+// splitAtSentence splits s after its first ". " into (sentence, rest, true).
+// It reports false if s has no such boundary, so callers can fall back to a
+// width-driven wrap instead.
+func splitAtSentence(s string) (first, rest string, ok bool) {
+	idx := strings.Index(s, ". ")
+	if idx < 0 {
+		return "", "", false
+	}
+	return s[:idx+1], s[idx+2:], true
 }

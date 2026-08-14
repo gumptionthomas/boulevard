@@ -46,7 +46,9 @@ func (r Renderer) Render(p Plan) ([]byte, error) {
 	for _, sheet := range p.Sheets {
 		pdf.AddPage()
 		if sheet.Cover != nil {
-			drawCover(pdf, *sheet.Cover)
+			if err := drawCover(pdf, *sheet.Cover); err != nil {
+				return nil, fmt.Errorf("draw cover: %w", err)
+			}
 		}
 		for _, c := range sheet.Cards {
 			if err := drawCard(pdf, c); err != nil {
