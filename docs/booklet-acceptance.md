@@ -35,7 +35,15 @@ Household printer, US Letter, **scale set to 100% / "actual size"** — not
 
 ## If a card fails to scan
 
-Check print scaling first — it is almost always "fit to page". If scaling was
-correct, the base URL may be long enough to push the symbol past the density
-guard; the command warns about this, but a warning ignored at generation time
-shows up here.
+Print scaling is the most common cause — check that the PDF was printed at
+100% / "actual size" and not "fit to page", which silently shrinks every QR.
+
+If scaling was correct, other causes can be:
+
+- A damaged or creased card (winter on the box does that).
+- Poor indoor lighting at scan time.
+- The printer laying down too little toner for fine module detail.
+
+**Note:** A base URL too long to print reliably causes `boulevard booklet`
+to refuse the generation and exit with an error. If a booklet PDF exists,
+URL length is not the problem.
