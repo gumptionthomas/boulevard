@@ -9,7 +9,6 @@ import (
 	"fmt"
 	"io"
 	"net"
-	"net/url"
 	"os"
 	"strings"
 	"time"
@@ -49,7 +48,7 @@ func runBooklet(args []string) int {
 		return exitUsage
 	}
 
-	normalized, err := boulevard.ValidateBaseURL(o.baseURL)
+	normalized, host, err := boulevard.ValidateBaseURL(o.baseURL)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "  x  %v\n     Every card and the permanent browse sign encode this host.\n", err)
 		return exitUsage
@@ -66,7 +65,7 @@ func runBooklet(args []string) int {
 	o.installDate = boulevard.DateFromTime(time.Now())
 
 	if !o.skipDNS {
-		if err := checkDNS(o.baseURL); err != nil {
+		if err := checkDNS(host); err != nil {
 			fmt.Fprintf(os.Stderr, "  x  %v\n     Fix the URL, or pass --skip-dns if your DNS isn't live yet.\n", err)
 			return exitUsage
 		}
@@ -157,12 +156,9 @@ func runBooklet(args []string) int {
 	return exitOK
 }
 
-func checkDNS(baseURL string) error {
-	u, err := url.Parse(baseURL)
-	if err != nil {
-		return fmt.Errorf("parse %q: %w", baseURL, err)
-	}
-	host := u.Hostname()
+// checkDNS takes the host ValidateBaseURL already parsed, rather than
+// re-parsing the URL and inventing an error branch that cannot fire.
+func checkDNS(host string) error {
 	if _, err := net.LookupHost(host); err != nil {
 		return fmt.Errorf("%s does not resolve (%v)", host, err)
 	}

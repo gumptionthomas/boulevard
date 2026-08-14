@@ -18,19 +18,47 @@ func TestSlugify(t *testing.T) {
 }
 
 func TestValidateBaseURLAccepts(t *testing.T) {
-	tests := []struct{ in, want string }{
-		{"https://boulevard.example.org", "https://boulevard.example.org"},
-		{"https://boulevard.example.org/", "https://boulevard.example.org"},
-		{"http://localhost:8080", "http://localhost:8080"},
+	tests := []struct{ in, want, wantHost string }{
+		{"https://boulevard.example.org", "https://boulevard.example.org", "boulevard.example.org"},
+		{"https://boulevard.example.org/", "https://boulevard.example.org", "boulevard.example.org"},
+		{"http://localhost:8080", "http://localhost:8080", "localhost"},
 	}
 	for _, tc := range tests {
-		got, err := ValidateBaseURL(tc.in)
+		got, host, err := ValidateBaseURL(tc.in)
 		if err != nil {
 			t.Errorf("ValidateBaseURL(%q) errored: %v", tc.in, err)
 			continue
 		}
 		if got != tc.want {
 			t.Errorf("ValidateBaseURL(%q) = %q, want %q", tc.in, got, tc.want)
+		}
+		if host != tc.wantHost {
+			t.Errorf("ValidateBaseURL(%q) host = %q, want %q", tc.in, host, tc.wantHost)
+		}
+	}
+}
+
+// A hostname is case-insensitive, but the stored base URL is compared
+// literally on every re-run. Normalizing the case here is what keeps
+// https://Example.org from reading as a base-URL change against a stored
+// https://example.org — which would warn loudly and rewrite every QR.
+func TestValidateBaseURLLowercasesTheHost(t *testing.T) {
+	tests := []struct{ in, want, wantHost string }{
+		{"https://Boulevard.Example.ORG", "https://boulevard.example.org", "boulevard.example.org"},
+		{"HTTPS://Example.org", "https://example.org", "example.org"},
+		{"http://LocalHost:8080", "http://localhost:8080", "localhost"},
+	}
+	for _, tc := range tests {
+		got, host, err := ValidateBaseURL(tc.in)
+		if err != nil {
+			t.Errorf("ValidateBaseURL(%q) errored: %v", tc.in, err)
+			continue
+		}
+		if got != tc.want {
+			t.Errorf("ValidateBaseURL(%q) = %q, want %q", tc.in, got, tc.want)
+		}
+		if host != tc.wantHost {
+			t.Errorf("ValidateBaseURL(%q) host = %q, want %q", tc.in, host, tc.wantHost)
 		}
 	}
 }
@@ -48,7 +76,7 @@ func TestValidateBaseURLRejects(t *testing.T) {
 		"https://example.org#frag",    // fragment
 		"https://user:pw@example.org", // credentials
 	} {
-		if _, err := ValidateBaseURL(in); err == nil {
+		if _, _, err := ValidateBaseURL(in); err == nil {
 			t.Errorf("ValidateBaseURL(%q) succeeded, want error", in)
 		}
 	}

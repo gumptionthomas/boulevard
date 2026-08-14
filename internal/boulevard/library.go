@@ -59,31 +59,41 @@ func Slugify(s string) string {
 // ValidateBaseURL enforces scheme + host and nothing else. Every token card
 // and the permanent browse sign encode this value, so a path or query here
 // becomes twelve dead cards and a wrong permanent sign (DESIGN.md §8).
-func ValidateBaseURL(raw string) (string, error) {
+//
+// It returns the normalized base URL and the bare hostname it parsed out.
+// Handing back the host means callers doing a DNS lookup need not parse the
+// URL a second time to recover something already known here.
+//
+// The host is lowercased. Hostnames are case-insensitive, but the stored
+// string is compared literally on every re-run: without this,
+// https://Example.org followed by https://example.org reads as a base-URL
+// change, fires the loudest warning the tool has, and rewrites every QR
+// payload for nothing.
+func ValidateBaseURL(raw string) (normalized, host string, err error) {
 	if strings.TrimSpace(raw) == "" {
-		return "", errors.New("base URL is required")
+		return "", "", errors.New("base URL is required")
 	}
 	u, err := url.Parse(raw)
 	if err != nil {
-		return "", fmt.Errorf("parse base URL %q: %w", raw, err)
+		return "", "", fmt.Errorf("parse base URL %q: %w", raw, err)
 	}
 	if u.Scheme != "http" && u.Scheme != "https" {
-		return "", fmt.Errorf("base URL must use http or https, got %q", u.Scheme)
+		return "", "", fmt.Errorf("base URL must use http or https, got %q", u.Scheme)
 	}
 	if u.Host == "" {
-		return "", errors.New("base URL must include a host")
+		return "", "", errors.New("base URL must include a host")
 	}
 	if u.User != nil {
-		return "", errors.New("base URL must not include credentials")
+		return "", "", errors.New("base URL must not include credentials")
 	}
 	if p := strings.Trim(u.Path, "/"); p != "" {
-		return "", fmt.Errorf("base URL must not include a path, got %q", u.Path)
+		return "", "", fmt.Errorf("base URL must not include a path, got %q", u.Path)
 	}
 	if u.RawQuery != "" {
-		return "", errors.New("base URL must not include a query string")
+		return "", "", errors.New("base URL must not include a query string")
 	}
 	if u.Fragment != "" {
-		return "", errors.New("base URL must not include a fragment")
+		return "", "", errors.New("base URL must not include a fragment")
 	}
-	return u.Scheme + "://" + u.Host, nil
+	return u.Scheme + "://" + strings.ToLower(u.Host), strings.ToLower(u.Hostname()), nil
 }
