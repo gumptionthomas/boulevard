@@ -38,6 +38,7 @@ func runBooklet(args []string) int {
 	fs.StringVar(&o.db, "db", "boulevard.db", "database path")
 	fs.BoolVar(&o.skipDNS, "skip-dns", false, "skip the DNS check")
 	fs.BoolVar(&o.yes, "yes", false, "skip the confirmation prompt")
+	fs.BoolVar(&o.yes, "y", false, "shorthand for --yes")
 	fs.BoolVar(&o.force, "force", false, "overwrite an existing output file")
 	if err := fs.Parse(args); err != nil {
 		return exitUsage

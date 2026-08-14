@@ -197,6 +197,25 @@ func TestRunBookletEndToEnd(t *testing.T) {
 	}
 }
 
+// Spec §9's flag table documents "--yes / -y". The shorthand was never
+// registered, so -y failed with "flag provided but not defined".
+func TestRunBookletAcceptsTheYesShorthand(t *testing.T) {
+	dir := t.TempDir()
+	out := filepath.Join(dir, "booklet.pdf")
+	code := runBooklet([]string{
+		"--name", "The Fairview Boulevard", "--location", "4th & Fairview",
+		"--base-url", "https://boulevard.example.org",
+		"-y", "--skip-dns",
+		"--db", filepath.Join(dir, "b.db"), "--out", out,
+	})
+	if code != exitOK {
+		t.Fatalf("exit code = %d, want %d; -y is documented and must parse", code, exitOK)
+	}
+	if _, err := os.Stat(out); err != nil {
+		t.Errorf("no PDF written: %v", err)
+	}
+}
+
 func mustTime(t *testing.T, s string) time.Time {
 	t.Helper()
 	ts, err := time.Parse("2006-01-02", s)
