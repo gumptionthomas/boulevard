@@ -4,6 +4,8 @@ import (
 	"bytes"
 	"errors"
 	"fmt"
+	"maps"
+	"slices"
 	"sync"
 	"time"
 
@@ -138,22 +140,88 @@ func trackedWidth(pdf *fpdf.Fpdf, text string, tracking float64) float64 {
 	return w
 }
 
-// drawCutMarks draws hairlines on the shared card edges plus ticks into the
-// margins, so a steward can lay a straightedge across the page. Scissors,
-// not a guillotine (DESIGN.md §4).
+// TickLen is how far a cut mark reaches into the margin. Long enough to
+// lay a straightedge against, short enough not to reach the paper's edge.
+const TickLen = 12.0
+
+// drawCutMarks draws hairlines on the shared card edges, plus a tick at
+// each end of every cut the steward has to make — out in the margin, where
+// no blade passes. Scissors, not a guillotine (DESIGN.md §4).
+//
+// Every cut gets marks in the direction it runs: horizontal cuts are ticked
+// in the left and right margins, the vertical cut between the two card
+// columns in the top and bottom margins. A tick is only drawn where cards
+// actually reach the margin, which is what keeps sheet 2 from appearing to
+// invite a vertical cut straight down through the cover.
 func drawCutMarks(pdf *fpdf.Fpdf, sheet Sheet) {
 	pdf.SetDrawColor(ruleR, ruleG, ruleB)
 	pdf.SetLineWidth(HairlineW)
 
-	const tick = 12.0
 	for _, c := range sheet.Cards {
 		pdf.Rect(c.Rect.X, c.Rect.Y, c.Rect.W, c.Rect.H, "D")
-		pdf.Line(c.Rect.X, c.Rect.Y, c.Rect.X-tick, c.Rect.Y)
-		pdf.Line(c.Rect.X+c.Rect.W, c.Rect.Y, c.Rect.X+c.Rect.W+tick, c.Rect.Y)
+	}
+	for _, t := range cutTicks(sheet) {
+		pdf.Line(t.X1, t.Y1, t.X2, t.Y2)
+	}
+}
+
+// Tick is one cut mark: a short segment lying in a page margin.
+type Tick struct{ X1, Y1, X2, Y2 float64 }
+
+// cutTicks is where the tick geometry is decided, kept free of the PDF
+// library so the marks can be asserted directly rather than inferred from
+// rendered bytes.
+func cutTicks(sheet Sheet) []Tick {
+	// Each cut line, mapped to the extent of what it separates.
+	horizontal := map[float64]span{} // y of the cut -> the x range it spans
+	vertical := map[float64]span{}   // x of the cut -> the y range it spans
+	for _, c := range sheet.Cards {
+		l, r := c.Rect.X, c.Rect.X+c.Rect.W
+		t, b := c.Rect.Y, c.Rect.Y+c.Rect.H
+		addSpan(horizontal, t, l, r)
+		addSpan(horizontal, b, l, r)
+		addSpan(vertical, l, t, b)
+		addSpan(vertical, r, t, b)
 	}
 	if sheet.Cover != nil {
 		// The single horizontal cut that frees the cover.
-		cut := sheet.Cover.Rect.Y + sheet.Cover.Rect.H
-		pdf.Line(MarginX-tick, cut, PageW-MarginX+tick, cut)
+		addSpan(horizontal, sheet.Cover.Rect.Y+sheet.Cover.Rect.H,
+			sheet.Cover.Rect.X, sheet.Cover.Rect.X+sheet.Cover.Rect.W)
 	}
+
+	// Sorted, because map order is random and the golden file compares
+	// bytes: the same plan must draw the same lines in the same sequence.
+	var ticks []Tick
+	for _, y := range slices.Sorted(maps.Keys(horizontal)) {
+		s := horizontal[y]
+		if s.lo <= MarginX {
+			ticks = append(ticks, Tick{MarginX - TickLen, y, MarginX, y})
+		}
+		if s.hi >= PageW-MarginX {
+			ticks = append(ticks, Tick{PageW - MarginX, y, PageW - MarginX + TickLen, y})
+		}
+	}
+	for _, x := range slices.Sorted(maps.Keys(vertical)) {
+		s := vertical[x]
+		if s.lo <= MarginY {
+			ticks = append(ticks, Tick{x, MarginY - TickLen, x, MarginY})
+		}
+		if s.hi >= PageH-MarginY {
+			ticks = append(ticks, Tick{x, PageH - MarginY, x, PageH - MarginY + TickLen})
+		}
+	}
+	return ticks
+}
+
+// span is how far a cut line extends, accumulated across the cards that
+// share it.
+type span struct{ lo, hi float64 }
+
+func addSpan(m map[float64]span, at, lo, hi float64) {
+	s, ok := m[at]
+	if !ok {
+		m[at] = span{lo, hi}
+		return
+	}
+	m[at] = span{min(s.lo, lo), max(s.hi, hi)}
 }
