@@ -29,6 +29,17 @@ Household printer, US Letter, **scale set to 100% / "actual size"** — not
 - [ ] Each card's QR resolves to `<base-url>/s/<something>`, and no two cards
       resolve to the same URL.
 - [ ] The browse sign's QR resolves to the bare base URL.
+- [ ] The browse sign carries the library's name, in full, inside its border —
+      nothing clipped, nothing running past the edge.
+- [ ] The browse sign reads "Scan to browse the shelf" and "Anyone, anywhere,
+      anytime. No code needed.", legibly from the sidewalk.
+- [ ] The cover's "Setting up" instructions are present, numbered 1-5 in order,
+      and readable: cut, tape, swap monthly, look at the box, mount the sign.
+- [ ] The cover states that the browse sign goes in a sleeve, and is never
+      laminated or engraved.
+- [ ] Tick marks reach into the margins at both ends of every cut — including
+      the bottom edge of the last row of cards, and the vertical cut between
+      the two columns.
 - [ ] Held at driver's-seat distance (~2 m), the card QR is *not* comfortably
       scannable. Presence is the credential; a code readable from a car is a bug.
 - [ ] The cover footer names a version, a commit, and the source repository.
@@ -47,3 +58,9 @@ If scaling was correct, other causes can be:
 **Note:** A base URL too long to print reliably causes `boulevard booklet`
 to refuse the generation and exit with an error. If a booklet PDF exists,
 URL length is not the problem.
+
+## If the library name is refused
+
+A `--name` too long for the browse sign is refused before anything is
+written, with the approximate character budget in the message. Pass a
+shorter `--name`; the location label is where the longer form belongs.

@@ -156,7 +156,9 @@ Cases that must have tests: install on the 1st; install on the 31st; install on 
 
 At ECC Q with a 26-character secret and a typical host, the payload lands around 58 bytes — QR version 5, 37 × 37 modules. At the specified 83 pt card QR that is ~0.79 mm per module, comfortably scannable.
 
-**Long base URLs degrade this.** The renderer must warn if the payload pushes the symbol above version 8 (49 × 49 modules, ~0.59 mm at the same physical size), where reliability starts to suffer in bad light.
+**Long base URLs degrade this.** The renderer must **refuse** if the payload pushes the symbol above version 8 (49 × 49 modules, ~0.59 mm at the same physical size), where reliability starts to suffer in bad light. Routed to `exitUsage` (2): it is the `--base-url` that is wrong, and nothing is written.
+
+*Amended during implementation.* This originally said "warn". A warning ships a booklet whose cards may not scan, and a steward cannot tell a marginal QR from a damaged or revoked one — the expensive failure §3 already names. An unscannable card that ships is worse than a refused generation.
 
 ---
 
@@ -243,6 +245,10 @@ A 302.4 × 158.4 pt (4.2 × 2.2 in) cut-out on the cover sheet, bordered with cu
 
 This is the artifact §10 calls the permanent exposure. The cover sheet must state that it belongs **in a sleeve, not laminated or engraved**, so it stays replaceable when a hosting arrangement ends.
 
+**The library name has a budget.** The text column runs from the QR to the sign's right border — 154.4 pt — and the name gets at most two lines of 14 pt Times Bold there, which is roughly 35 characters of ordinary mixed case. A longer name is **refused**, not drawn past the border: this sign is mounted in public and read by strangers, and a steward must learn the name does not fit at generation time rather than after screwing it to the box. The refusal is a `--name` validation error routed to `exitUsage` (2), raised before the DNS check and before any database write, and it reports the measured budget for the name given. The same check remains inside the renderer as a backstop.
+
+*Amended during implementation.* The original spec never contemplated a name too long for the sign; an ordinary one — "Highland Park Neighborhood Little Free Library" — exceeds it.
+
 ### 8.4 Cover sheet
 
 Occupies rows 1–4 of sheet 2, containing in order: a title block naming the library and its location; the browse sign cut-out; install instructions; the signage line; and a footer carrying the source URL, version, and commit.
@@ -273,13 +279,16 @@ boulevard version
 
 ### 9.1 Behavior
 
-1. Validate the URL shape. Reject a path, query, or fragment — every card encodes this host.
-2. Resolve the hostname via DNS unless `--skip-dns`. On failure, refuse and name the host.
-3. Print what will be encoded and require a `y/N` confirmation unless `--yes`.
-4. Open or create the database. The library is looked up **by slug**. If it already exists, **reprint its existing secrets rather than minting new ones** — this is the entire reason §4 stores them in plaintext.
-5. Reconcile the library record. `--name` and `--location` overwrite the stored values silently. `--base-url` also overwrites, but only after warning loudly that every card and the permanent browse sign now encode a different host; §8 explicitly permits regeneration after a base-URL change. Tokens are never re-minted by any of this — only the printed URLs change.
-6. Refuse to overwrite an existing `--out` without `--force`.
-7. Write the PDF.
+1. Validate the URL shape. Reject a path, query, or fragment — every card encodes this host. The host is lowercased: it is compared literally on every re-run, and case alone must not read as a base-URL change.
+2. Validate that `--name` fits the browse sign (§8.3).
+3. Resolve the hostname via DNS unless `--skip-dns`. On failure, refuse and name the host.
+4. Refuse to overwrite an existing `--out` without `--force`.
+5. Print what this run will do — reprint an existing library, create a new one, or repair one holding no cards — naming the library, its slug, and what will be encoded. When a new library is about to join a database that already holds others, list them: the slug derives from `--name`, so a typo mints a second library rather than reprinting the first. Then require a `y/N` confirmation unless `--yes`.
+6. Open or create the database, owner-readable only: it holds token secrets in plaintext, and a secret is the write credential for the shelf. The library is looked up **by slug**. If it already exists, **reprint its existing secrets rather than minting new ones** — this is the entire reason §4 stores them in plaintext. If it exists but holds no tokens — the wreckage of a run interrupted between the two transactions — mint its booklet rather than failing forever.
+7. Reconcile the library record. `--name` and `--location` overwrite the stored values silently. `--base-url` also overwrites, but only after warning loudly, and exactly once, that every card and the permanent browse sign now encode a different host; §8 explicitly permits regeneration after a base-URL change. Tokens are never re-minted by any of this — only the printed URLs change.
+8. Write the PDF, owner-readable only: every card in it carries a secret.
+
+*Amended during implementation.* The `--out` existence check was step 6, after the confirmation. It runs before the prompt instead — failing fast beats failing after asking. The steps are renumbered to match, and the pre-flight `--name` check (§8.3) and the file modes are recorded here.
 
 ### 9.2 Exit codes
 
@@ -287,7 +296,7 @@ boulevard version
 |---|---|
 | 0 | Success |
 | 1 | Confirmation declined — nothing written |
-| 2 | Usage or validation error (bad URL, DNS failure, output exists) |
+| 2 | Usage or validation error (bad URL, DNS failure, output exists, `--name` too long for the browse sign, base URL too long for a comfortable QR) |
 | 3 | I/O or database error |
 
 ---
@@ -342,3 +351,5 @@ Together these make each code name its own verb, and the two artifacts deliberat
 ## 14. Deferred to Milestone 1
 
 Token validation with the seven-day grace window, first-scan activation, expiry of the prior active token, steward overrides (force-activate, extend, revoke), the `/s/:token` endpoint, and session cookies.
+
+**A second year's booklet.** §9.1 step 6 reprints an existing library's secrets rather than minting new ones, which is what makes a lost booklet reprintable. It also means that once the twelve months elapse, re-running reprints the same twelve now-expired cards, forever: there is no path to year two. This is deliberate for Milestone 0 — a booklet is generated once, and expiry has no meaning until token validation exists — but it needs a command of its own (a `--renew`, or an explicit next-period mint) alongside the validation work, or it will be rediscovered as a bug the first time a steward reaches month thirteen.
