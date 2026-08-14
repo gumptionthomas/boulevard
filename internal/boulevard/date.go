@@ -65,3 +65,9 @@ func (d Date) MonthName() string { return d.Month.String() }
 func (d Date) NextDay() Date {
 	return DateFromTime(d.time().AddDate(0, 0, 1))
 }
+
+// AddDays returns the date n days from d. Negative n moves backwards.
+// Used for the token grace window, which extends both ends of a period.
+func (d Date) AddDays(n int) Date {
+	return DateFromTime(d.time().AddDate(0, 0, n))
+}
