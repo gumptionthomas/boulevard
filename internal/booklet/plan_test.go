@@ -1,6 +1,7 @@
 package booklet
 
 import (
+	"bytes"
 	"crypto/rand"
 	"testing"
 	"time"
@@ -24,6 +25,39 @@ func testInput(t *testing.T) Input {
 	toks := make([]boulevard.Token, 0, len(periods))
 	for _, p := range periods {
 		secret, err := tokens.NewSecret(rand.Reader)
+		if err != nil {
+			t.Fatal(err)
+		}
+		toks = append(toks, boulevard.Token{
+			LibraryID: id, Secret: secret, PeriodIndex: p.Index,
+			ValidFrom: p.From, ValidUntil: p.Until, State: boulevard.TokenPending,
+		})
+	}
+	return Input{
+		Library: lib, Tokens: toks,
+		SourceURL: "https://github.com/gumptionthomas/boulevard",
+		BuildLine: "boulevard 0.1.0 (abc1234)",
+	}
+}
+
+// fixedInput mirrors testInput but draws secrets from a fixed byte source so
+// the golden PDF is stable across runs.
+func fixedInput(t *testing.T) Input {
+	t.Helper()
+	src := bytes.NewReader(bytes.Repeat([]byte("boulevard-golden!"), 64))
+	id, err := boulevard.NewLibraryID(src)
+	if err != nil {
+		t.Fatal(err)
+	}
+	lib := boulevard.Library{
+		ID: id, Slug: "fairview", Name: "The Fairview Boulevard",
+		LocationLabel: "4th & Fairview, Minneapolis",
+		BaseURL:       "https://boulevard.example.org",
+	}
+	periods := tokens.Periods(boulevard.NewDate(2026, time.August, 14), tokens.PeriodCount)
+	toks := make([]boulevard.Token, 0, len(periods))
+	for _, p := range periods {
+		secret, err := tokens.NewSecret(src)
 		if err != nil {
 			t.Fatal(err)
 		}
