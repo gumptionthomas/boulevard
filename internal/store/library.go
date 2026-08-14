@@ -38,6 +38,32 @@ func (s *Store) LibraryBySlug(ctx context.Context, slug string) (boulevard.Libra
 	return lib, nil
 }
 
+// LibrarySlugs lists every library slug in the database, ordered.
+//
+// One database can hold many libraries (DESIGN.md §10), and the slug is
+// derived from --name, so a typo mints a whole new library rather than
+// reprinting. The CLI names the neighbours before it does that.
+func (s *Store) LibrarySlugs(ctx context.Context) ([]string, error) {
+	rows, err := s.db.QueryContext(ctx, `SELECT slug FROM libraries ORDER BY slug`)
+	if err != nil {
+		return nil, fmt.Errorf("list libraries: %w", err)
+	}
+	defer rows.Close()
+
+	var out []string
+	for rows.Next() {
+		var slug string
+		if err := rows.Scan(&slug); err != nil {
+			return nil, fmt.Errorf("scan library slug: %w", err)
+		}
+		out = append(out, slug)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("list libraries: %w", err)
+	}
+	return out, nil
+}
+
 // UpdateLibrary overwrites the mutable fields. The ID is the match key and
 // never changes — printed artifacts and copied database files depend on it.
 func (s *Store) UpdateLibrary(ctx context.Context, lib boulevard.Library) error {

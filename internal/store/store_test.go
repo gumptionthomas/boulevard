@@ -83,6 +83,37 @@ func TestUpdateLibraryChangesFieldsButNotID(t *testing.T) {
 	}
 }
 
+func TestLibrarySlugsListsEveryLibrary(t *testing.T) {
+	ctx, s := context.Background(), openTemp(t)
+	got, err := s.LibrarySlugs(ctx)
+	if err != nil {
+		t.Fatalf("LibrarySlugs on an empty database: %v", err)
+	}
+	if len(got) != 0 {
+		t.Errorf("empty database listed %v", got)
+	}
+
+	for _, slug := range []string{"whittier", "fairview"} {
+		lib := makeLibrary(t)
+		lib.Slug = slug
+		id, err := boulevard.NewLibraryID(rand.Reader)
+		if err != nil {
+			t.Fatal(err)
+		}
+		lib.ID = id
+		if err := s.CreateLibrary(ctx, lib); err != nil {
+			t.Fatal(err)
+		}
+	}
+	got, err = s.LibrarySlugs(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 2 || got[0] != "fairview" || got[1] != "whittier" {
+		t.Errorf("LibrarySlugs = %v, want [fairview whittier] in slug order", got)
+	}
+}
+
 func makeTokens(t *testing.T, libID boulevard.LibraryID) []boulevard.Token {
 	t.Helper()
 	periods := tokens.Periods(boulevard.NewDate(2026, time.August, 14), tokens.PeriodCount)

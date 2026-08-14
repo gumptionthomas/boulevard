@@ -89,29 +89,20 @@ func runBooklet(args []string) int {
 
 	ctx := context.Background()
 
-	// Peek at an existing library BEFORE prompting, so a base-URL change is
-	// part of what the steward is agreeing to rather than news after the
-	// fact. Only open a database that already exists — opening would create
-	// the file, and a declined prompt must leave nothing behind.
-	if _, err := os.Stat(o.db); err == nil {
-		peek, err := store.Open(o.db)
-		if err != nil {
-			fmt.Fprintf(os.Stderr, "  x  %v\n", err)
-			return exitIO
-		}
-		prior, err := peek.LibraryBySlug(ctx, o.slug)
-		peek.Close()
-		if err != nil && !errors.Is(err, store.ErrNotFound) {
-			fmt.Fprintf(os.Stderr, "  x  %v\n", err)
-			return exitIO
-		}
-		if err == nil && prior.BaseURL != o.baseURL {
-			warnBaseURLChange(os.Stdout, prior.BaseURL, o.baseURL)
-		}
+	// Look at the database BEFORE prompting, so that what this run is about
+	// to do is part of what the steward agrees to rather than news after the
+	// fact.
+	peek, err := peekDatabase(ctx, o)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "  x  %v\n", err)
+		return exitIO
 	}
+	if peek.found && peek.baseURL != o.baseURL {
+		warnBaseURLChange(os.Stdout, peek.baseURL, o.baseURL)
+	}
+	printIntent(os.Stdout, o, peek)
 
 	if !o.yes {
-		fmt.Printf("\n  Cards will encode:  %s/s/<token>\n  Browse sign:        %s\n\n", o.baseURL, o.baseURL)
 		if !confirm(os.Stdin, os.Stdout, "The browse sign is meant to be permanent. Print?") {
 			fmt.Println("Nothing written.")
 			return exitDeclined
@@ -125,7 +116,10 @@ func runBooklet(args []string) int {
 	}
 	defer s.Close()
 
-	lib, created, err := resolveLibrary(ctx, s, o, rand.Reader, os.Stdout)
+	// The peek above has already warned about any base-URL change, under
+	// exactly the same condition. This is the most consequential warning the
+	// tool prints; it must read once.
+	lib, created, err := resolveLibrary(ctx, s, o, rand.Reader, io.Discard)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "  x  %v\n", err)
 		return exitIO
@@ -158,13 +152,91 @@ func runBooklet(args []string) int {
 		return exitIO
 	}
 
+	// The verb belongs to the library, not to the database file: the file is
+	// usually opened, not created, and saying "Created boulevard.db" about a
+	// database that already existed is exactly the reassurance a steward who
+	// mistyped --name must not be given.
 	verb := "Reprinted"
 	if created {
 		verb = "Created"
 	}
-	fmt.Printf("\n  %s %s\n  %s  (%d cards, %s)\n\n  Print it, cut the cards, and scan one before you mount anything.\n\n",
-		verb, o.db, o.out, len(toks), lib.Slug)
+	fmt.Printf("\n  %s library %s\n  %s  (%d cards)\n  %s\n\n  Print it, cut the cards, and scan one before you mount anything.\n\n",
+		verb, lib.Slug, o.out, len(toks), o.db)
 	return exitOK
+}
+
+// dbPeek is what the database already holds for this run's slug, read
+// before the confirmation prompt.
+type dbPeek struct {
+	found      bool
+	baseURL    string
+	tokenCount int
+	otherSlugs []string // only populated when this slug is not present
+}
+
+// peekDatabase reads the state runBooklet needs in order to say what it is
+// about to do. It only opens a database that already exists: opening would
+// create the file, and a declined prompt must leave nothing behind.
+func peekDatabase(ctx context.Context, o bookletOpts) (dbPeek, error) {
+	var p dbPeek
+	if _, err := os.Stat(o.db); err != nil {
+		return p, nil
+	}
+	s, err := store.Open(o.db)
+	if err != nil {
+		return dbPeek{}, err
+	}
+	defer s.Close()
+
+	lib, err := s.LibraryBySlug(ctx, o.slug)
+	switch {
+	case err == nil:
+		p.found, p.baseURL = true, lib.BaseURL
+		toks, err := s.TokensForLibrary(ctx, lib.ID)
+		if err != nil {
+			return dbPeek{}, err
+		}
+		p.tokenCount = len(toks)
+
+	case errors.Is(err, store.ErrNotFound):
+		// A new library inside a database that already holds others is
+		// exactly where a typo in --name hides, so name the neighbours.
+		if p.otherSlugs, err = s.LibrarySlugs(ctx); err != nil {
+			return dbPeek{}, err
+		}
+
+	default:
+		return dbPeek{}, err
+	}
+	return p, nil
+}
+
+// printIntent states which library this run will touch and what it will do
+// to it, before the prompt.
+//
+// The slug is derived from --name and the lookup is by slug, so "The
+// Fairview Boulevard" and "Fairview Boulevard" are two different libraries
+// with two different sets of secrets. Showing only the two URLs — as this
+// once did — hid a one-character typo at the single moment the steward was
+// asked to look at anything.
+func printIntent(w io.Writer, o bookletOpts, p dbPeek) {
+	switch {
+	case p.found && p.tokenCount > 0:
+		fmt.Fprintf(w, "\n  Reprinting existing library %q — the same %d cards, unchanged.\n", o.slug, p.tokenCount)
+	case p.found:
+		fmt.Fprintf(w, "\n  Repairing library %q — it holds no cards, so twelve new secrets will be minted.\n", o.slug)
+	default:
+		fmt.Fprintf(w, "\n  Creating a new library %q, with twelve new secrets.\n", o.slug)
+	}
+	fmt.Fprintf(w, "    Name:      %s\n    Location:  %s\n    Cards:     %s/s/<token>\n    Sign:      %s\n",
+		o.name, o.location, o.baseURL, o.baseURL)
+	if len(p.otherSlugs) > 0 {
+		fmt.Fprintf(w, "\n  %s already holds: %s\n"+
+			"     If you meant one of those, stop and re-run with its --name or --slug.\n"+
+			"     A new library is not a reprint: it mints its own twelve secrets.\n",
+			o.db, strings.Join(p.otherSlugs, ", "))
+	}
+	fmt.Fprintln(w)
 }
 
 // checkDNS takes the host ValidateBaseURL already parsed, rather than
@@ -197,7 +269,8 @@ func confirm(in io.Reader, out io.Writer, question string) bool {
 }
 
 // resolveLibrary loads the library by slug, creating it and minting its
-// twelve tokens on first run. It returns whether the library was created.
+// twelve tokens on first run. It reports whether a booklet was minted, as
+// opposed to reprinted.
 //
 // Existing tokens are NEVER re-minted. Reprinting must reproduce identical
 // cards — that is the whole reason secrets are stored in plaintext.
@@ -213,6 +286,24 @@ func resolveLibrary(ctx context.Context, s *store.Store, o bookletOpts, entropy 
 		existing.BaseURL = o.baseURL
 		if err := s.UpdateLibrary(ctx, existing); err != nil {
 			return boulevard.Library{}, false, err
+		}
+		// A library holding no tokens is the wreckage of an interrupted
+		// first run: CreateLibrary commits on its own and InsertTokens is a
+		// second transaction, so a Ctrl-C, a full disk or a constraint error
+		// between them leaves the row without its booklet. Every later run
+		// then took this branch, found nothing, and died in BuildPlan with
+		// "needs exactly 12 tokens, got 0" — permanently, with deleting the
+		// database the only escape. Mint the missing booklet instead.
+		toks, err := s.TokensForLibrary(ctx, existing.ID)
+		if err != nil {
+			return boulevard.Library{}, false, err
+		}
+		if len(toks) == 0 {
+			if err := mintBooklet(ctx, s, existing.ID, o.installDate, entropy); err != nil {
+				return boulevard.Library{}, false, err
+			}
+			// These secrets are new, so this is a mint, not a reprint.
+			return existing, true, nil
 		}
 		return existing, false, nil
 
@@ -234,26 +325,31 @@ func resolveLibrary(ctx context.Context, s *store.Store, o bookletOpts, entropy 
 	if err := s.CreateLibrary(ctx, lib); err != nil {
 		return boulevard.Library{}, false, err
 	}
+	if err := mintBooklet(ctx, s, lib.ID, o.installDate, entropy); err != nil {
+		return boulevard.Library{}, false, err
+	}
+	return lib, true, nil
+}
 
-	periods := tokens.Periods(o.installDate, tokens.PeriodCount)
+// mintBooklet generates a full twelve-period booklet for a library that has
+// none, and stores it in one transaction.
+func mintBooklet(ctx context.Context, s *store.Store, id boulevard.LibraryID, install boulevard.Date, entropy io.Reader) error {
+	periods := tokens.Periods(install, tokens.PeriodCount)
 	toks := make([]boulevard.Token, 0, len(periods))
 	for _, p := range periods {
 		secret, err := tokens.NewSecret(entropy)
 		if err != nil {
-			return boulevard.Library{}, false, err
+			return err
 		}
 		tokID, err := boulevard.RandomBase32(entropy, boulevard.EntropyBytes)
 		if err != nil {
-			return boulevard.Library{}, false, err
+			return err
 		}
 		toks = append(toks, boulevard.Token{
-			ID: tokID, LibraryID: lib.ID, Secret: secret,
+			ID: tokID, LibraryID: id, Secret: secret,
 			PeriodIndex: p.Index, ValidFrom: p.From, ValidUntil: p.Until,
 			State: boulevard.TokenPending,
 		})
 	}
-	if err := s.InsertTokens(ctx, lib.ID, toks); err != nil {
-		return boulevard.Library{}, false, err
-	}
-	return lib, true, nil
+	return s.InsertTokens(ctx, id, toks)
 }
