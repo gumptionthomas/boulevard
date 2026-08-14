@@ -20,7 +20,12 @@ Milestone 0 — the booklet generator. No server yet.
 This writes `boulevard.db` and a printable `boulevard-booklet.pdf`: twelve
 tear-off monthly cards, a permanent browse sign, and a cover sheet.
 
-Re-running reprints the *same* cards rather than minting new ones.
+Re-running reprints the *same* cards rather than minting new ones — the
+library is looked up by its slug, which is derived from `--name`, so the run
+says which library it is about to touch before it touches it.
+
+Both files are written owner-readable only: the database holds every token
+secret in plaintext, and every card in the PDF carries one in its QR.
 
 ## Building
 
