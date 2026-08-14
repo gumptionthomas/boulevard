@@ -48,6 +48,13 @@ func Encode(payload string) (Code, error) {
 	if size < 21 { // a version 1 symbol is 21 modules
 		return Code{}, fmt.Errorf("qr bitmap is %d modules after stripping the quiet zone", size)
 	}
+	// A QR symbol of version v is always 4v+17 modules on a side. If the
+	// library's border ever changed width, or a future substitute library
+	// used a different one, size would stop fitting that formula. Catch it
+	// here rather than silently truncating into a wrong Version below.
+	if (size-17)%4 != 0 {
+		return Code{}, fmt.Errorf("qr bitmap size %d does not fit the version formula 4v+17", size)
+	}
 
 	mods := make([][]bool, size)
 	for y := 0; y < size; y++ {
