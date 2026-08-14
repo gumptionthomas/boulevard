@@ -58,3 +58,10 @@ func (d Date) After(o Date) bool  { return d.time().After(o.time()) }
 func (d Date) Equal(o Date) bool  { return d == o }
 
 func (d Date) MonthName() string { return d.Month.String() }
+
+// NextDay returns the day after d. Every period ends on a month boundary, so
+// in practice this is the first of the next month; the general form keeps
+// the gapless-period test honest rather than tautological.
+func (d Date) NextDay() Date {
+	return DateFromTime(d.time().AddDate(0, 0, 1))
+}
