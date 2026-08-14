@@ -40,8 +40,16 @@ func TestNewSecretIsUniqueAcrossManyDraws(t *testing.T) {
 
 func TestNewSecretIsDeterministicUnderAFixedReader(t *testing.T) {
 	src := []byte("boulevard-fixed!")
-	a, _ := NewSecret(bytes.NewReader(src))
-	b, _ := NewSecret(bytes.NewReader(src))
+	// Both errors are checked: discarding them would let a failing NewSecret
+	// compare "" against "" and pass trivially.
+	a, err := NewSecret(bytes.NewReader(src))
+	if err != nil {
+		t.Fatalf("NewSecret: %v", err)
+	}
+	b, err := NewSecret(bytes.NewReader(src))
+	if err != nil {
+		t.Fatalf("NewSecret: %v", err)
+	}
 	if a != b {
 		t.Errorf("got %q and %q; generation must be injectable so golden tests are stable", a, b)
 	}

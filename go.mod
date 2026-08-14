@@ -1,6 +1,6 @@
 module github.com/gumptionthomas/boulevard
 
-go 1.26.5
+go 1.26
 
 require (
 	github.com/go-pdf/fpdf v0.9.0

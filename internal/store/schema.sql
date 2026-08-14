@@ -17,7 +17,9 @@ CREATE TABLE IF NOT EXISTS tokens (
     state         TEXT NOT NULL,
     first_seen_at TEXT,
     created_at    TEXT NOT NULL,
+    -- This unique constraint gets an automatic index on
+    -- (library_id, period_index), which is exactly the lookup every query
+    -- here makes. A second hand-written index on the same columns would be
+    -- byte-for-byte redundant.
     UNIQUE (library_id, period_index)
 );
-
-CREATE INDEX IF NOT EXISTS idx_tokens_library ON tokens(library_id, period_index);
