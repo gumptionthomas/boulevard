@@ -104,8 +104,8 @@ Ephemeral. Created by scanning the rotating code, expires 24h later, grants both
 
 ### The two codes
 
-- **Browse code** — stable, generated once, printed once, mounted permanently. Encodes `https://host/`.
-- **Leave/take code** — rotating monthly, swapped by the steward from a printed booklet. Encodes `https://host/s/<token>`.
+- **Browse code** — stable, generated once, printed once, mounted permanently. Encodes `https://host/`. Reads *"Scan to browse the shelf — anyone, anywhere, anytime. No code needed."*
+- **Leave/take code** — rotating monthly, swapped by the steward from a printed booklet. Encodes `https://host/s/<token>`. Reads *"Scan to leave or take."*
 
 ### Token scheme
 
@@ -152,6 +152,8 @@ A single printable PDF, US Letter, generated at install:
 - Cut lines. Assume scissors, not a guillotine.
 
 **Signage line:** `Take something. Leave something. Scan to leave.`
+
+The mounted sign carries that line. **The monthly card says "Scan to leave or take"** — §5 gates taking behind a session identically to leaving, and a visitor who reads only "scan to leave" will tap *take* and find the control inert. Each code names its own verb, and the two artifacts deliberately do not resemble each other: browse is mounted, light, landscape, undated; leave/take is inside the door, dark-barred, dated, business-card sized.
 
 ### Session mechanics
 
