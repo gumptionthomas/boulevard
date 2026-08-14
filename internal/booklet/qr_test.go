@@ -111,6 +111,46 @@ func TestLongBaseURLIsFlaggedTooDense(t *testing.T) {
 	}
 }
 
+// The pre-flight is only worth having if it agrees with the renderer it
+// stands in for: it must never accept a base URL the renderer will refuse.
+func TestValidateCardPayloadAgreesWithTheRenderer(t *testing.T) {
+	urls := []string{
+		"https://boulevard.example.org",
+		"http://localhost:8080",
+		"https://" + strings.Repeat("verylongsubdomain.", 8) + "example.org",
+	}
+	for _, baseURL := range urls {
+		in := testInput(t)
+		in.Library.BaseURL = baseURL
+		p, err := BuildPlan(in)
+		if err != nil {
+			t.Fatal(err)
+		}
+		_, renderErr := fixedRenderer().Render(p)
+		validateErr := ValidateCardPayload(baseURL)
+		if validateErr == nil && renderErr != nil {
+			t.Errorf("base URL %q: the pre-flight accepted what the renderer refused: %v", baseURL, renderErr)
+		}
+		if validateErr != nil && renderErr == nil {
+			t.Logf("base URL %q: pre-flight is stricter than the renderer (%v)", baseURL, validateErr)
+		}
+	}
+}
+
+func TestValidateCardPayloadNamesTheFlagToChange(t *testing.T) {
+	long := "https://" + strings.Repeat("verylongsubdomain.", 8) + "example.org"
+	err := ValidateCardPayload(long)
+	if err == nil {
+		t.Fatal("ValidateCardPayload accepted a base URL that renders an unscannable card")
+	}
+	if !strings.Contains(err.Error(), "--base-url") {
+		t.Errorf("message %q does not name the flag to change", err)
+	}
+	if err := ValidateCardPayload("https://boulevard.example.org"); err != nil {
+		t.Errorf("ValidateCardPayload rejected an ordinary base URL: %v", err)
+	}
+}
+
 func TestEncodeRejectsEmptyPayload(t *testing.T) {
 	if _, err := Encode(""); err == nil {
 		t.Error("Encode(\"\") succeeded, want error")

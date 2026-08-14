@@ -390,6 +390,26 @@ func TestRunBookletRefusesALongNameBeforeWritingAnything(t *testing.T) {
 	}
 }
 
+// A base URL too long to print a scannable card is a --base-url problem,
+// caught with the other usage errors rather than after the tokens are in
+// the database.
+func TestRunBookletRefusesALongBaseURLBeforeWritingAnything(t *testing.T) {
+	dir := t.TempDir()
+	db := filepath.Join(dir, "b.db")
+	out := filepath.Join(dir, "b.pdf")
+	code := runBooklet([]string{
+		"--name", "The Fairview Boulevard", "--location", "4th & Fairview",
+		"--base-url", "https://" + strings.Repeat("verylongsubdomain.", 8) + "example.org",
+		"--yes", "--skip-dns", "--db", db, "--out", out,
+	})
+	if code != exitUsage {
+		t.Errorf("exit code = %d, want %d — an unprintable base URL is a usage error, not I/O", code, exitUsage)
+	}
+	if _, err := os.Stat(db); err == nil {
+		t.Error("a refused run left a database behind")
+	}
+}
+
 func TestRunBookletEndToEnd(t *testing.T) {
 	dir := t.TempDir()
 	out := filepath.Join(dir, "booklet.pdf")

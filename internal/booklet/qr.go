@@ -4,7 +4,9 @@ package booklet
 import (
 	"errors"
 	"fmt"
+	"strings"
 
+	"github.com/gumptionthomas/boulevard/internal/tokens"
 	qrcode "github.com/skip2/go-qrcode"
 )
 
@@ -13,6 +15,30 @@ import (
 // where phone scanning in poor light starts to suffer. Anything denser
 // means the base URL is too long to print reliably at this size.
 const MaxComfortableVersion = 8
+
+// ValidateCardPayload reports whether a card's QR stays at a comfortable
+// density for this base URL, before anything is generated.
+//
+// It is the same refusal drawCard makes, hoisted to where it belongs: the
+// base URL is a --base-url problem, and discovering it at render time meant
+// a database written, a booklet minted, and no PDF to show for it.
+//
+// The probe secret is a run of one alphanumeric character, which can never
+// encode in fewer bits than a real secret of the same length — so this can
+// refuse a payload the renderer would have accepted at the very boundary,
+// but it can never accept one the renderer will refuse.
+func ValidateCardPayload(baseURL string) error {
+	probe := baseURL + "/s/" + strings.Repeat("W", tokens.SecretLen)
+	code, err := Encode(probe)
+	if err != nil {
+		return err
+	}
+	if !code.TooDense() {
+		return nil
+	}
+	return fmt.Errorf("base URL %q is too long: a card's QR would need version %d, past the comfortable maximum of %d at %.0f pt, and cards would scan badly in poor light. Pass a shorter --base-url",
+		baseURL, code.Version, MaxComfortableVersion, CardQR)
+}
 
 // Code is a QR symbol as a bitmap of dark modules, quiet zone removed.
 type Code struct {

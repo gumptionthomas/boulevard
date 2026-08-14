@@ -74,6 +74,13 @@ func runBooklet(args []string) int {
 		fmt.Fprintf(os.Stderr, "  x  %v\n", err)
 		return exitUsage
 	}
+	// Likewise a base URL so long that a card's QR would be too dense to
+	// scan reliably: a --base-url problem, refused before anything is
+	// written rather than after the tokens are minted.
+	if err := booklet.ValidateCardPayload(o.baseURL); err != nil {
+		fmt.Fprintf(os.Stderr, "  x  %v\n", err)
+		return exitUsage
+	}
 
 	if !o.skipDNS {
 		if err := checkDNS(host); err != nil {
