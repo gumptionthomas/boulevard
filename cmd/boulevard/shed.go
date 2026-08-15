@@ -51,17 +51,17 @@ func runShed(args []string) int {
 	return exitOK
 }
 
-// agoFrom renders how long ago a shed happened, in the server's local zone.
+// agoFrom renders how long ago a shed happened.
 //
-// The store round-trips timestamps through RFC3339 in UTC (DESIGN.md's
-// clock invariant), so this converts to Local before doing anything with it
-// — comparing or formatting the raw UTC value here would read hours out to
-// whoever is standing in a non-UTC timezone.
+// time.Sub compares two absolute instants, so it is location-independent —
+// unlike formatting a timestamp for display (DESIGN.md's clock invariant,
+// which is about that case, not this one), no zone conversion changes the
+// result here.
 func agoFrom(t *time.Time, now time.Time) string {
 	if t == nil {
 		return "shed"
 	}
-	d := now.Sub(t.Local())
+	d := now.Sub(*t)
 	switch {
 	case d < time.Minute:
 		return "just now"
