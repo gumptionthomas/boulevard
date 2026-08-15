@@ -28,9 +28,38 @@ ALTER TABLE libraries ADD COLUMN approval_required INTEGER NOT NULL DEFAULT 1;
 ALTER TABLE libraries ADD COLUMN steward_contact   TEXT    NOT NULL DEFAULT '';
 `
 
+// createItems adds the shelf itself.
+//
+// The index is not the dead weight removed from tokens in Milestone 0: the
+// shelf query and the eviction query both filter by library and state and
+// order by shelved_at, and no existing constraint provides that.
+const createItems = `
+CREATE TABLE IF NOT EXISTS items (
+    id           TEXT PRIMARY KEY,
+    library_id   TEXT NOT NULL REFERENCES libraries(id),
+    type         TEXT NOT NULL,
+    payload      TEXT NOT NULL,
+    note         TEXT NOT NULL,
+    attribution  TEXT NOT NULL DEFAULT '',
+    copies_total INTEGER NOT NULL DEFAULT 0,
+    copies_left  INTEGER NOT NULL DEFAULT 0,
+    state        TEXT NOT NULL,
+    pinned       INTEGER NOT NULL DEFAULT 0,
+    views        INTEGER NOT NULL DEFAULT 0,
+    takes        INTEGER NOT NULL DEFAULT 0,
+    left_at      TEXT NOT NULL,
+    shelved_at   TEXT,
+    created_at   TEXT NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_items_shelf
+    ON items(library_id, state, shelved_at);
+`
+
 var migrations = []migration{
 	{1, schema},
 	{2, addLibrarySettings},
+	{3, createItems},
 }
 
 // migrate applies every migration not yet recorded, each in its own
