@@ -84,10 +84,16 @@ func (s *Server) handleAbout(w http.ResponseWriter, r *http.Request) {
 // libraryFromPath resolves {slug}. An unknown slug is a 404 — never a
 // fallback to the sole library, which would defeat DESIGN.md §10's rule that
 // nothing may assume a singleton.
+//
+// The 404 renders invalid.html rather than the stdlib's plain-text "404 page
+// not found". Every other page here is built for one-handed outdoor reading,
+// and this is the one a stale or mistyped URL actually reaches. invalid.html
+// is safe to reuse: it names no library and links only to the host root, so
+// it says nothing an unknown slug should not say.
 func (s *Server) libraryFromPath(w http.ResponseWriter, r *http.Request) (boulevard.Library, bool) {
 	lib, err := s.store.LibraryBySlug(r.Context(), r.PathValue("slug"))
 	if errors.Is(err, store.ErrNotFound) {
-		http.NotFound(w, r)
+		s.renderInvalid(w)
 		return boulevard.Library{}, false
 	}
 	if err != nil {

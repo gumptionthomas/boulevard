@@ -198,7 +198,7 @@ func TestPagesAreNotCacheable(t *testing.T) {
 		return time.Date(2026, time.September, 15, 16, 12, 0, 0, chicago)
 	}).Handler()
 
-	for _, path := range []string{"/b/fairview/", "/b/fairview/about", "/s/" + tok.Secret, "/s/NOSUCHSECRET"} {
+	for _, path := range []string{"/b/fairview/", "/b/fairview/about", "/b/nope/", "/s/" + tok.Secret, "/s/NOSUCHSECRET"} {
 		rec := get(t, h, path)
 		if got := rec.Header().Get("Cache-Control"); got != "no-store" {
 			t.Errorf("%s Cache-Control = %q, want no-store", path, got)
@@ -214,8 +214,21 @@ func TestUnknownSlugIs404(t *testing.T) {
 	addLibrary(t, st, "fairview")
 	h := New(st, time.Now).Handler()
 	for _, path := range []string{"/b/nope/", "/b/nope/about"} {
-		if rec := get(t, h, path); rec.Code != http.StatusNotFound {
+		rec := get(t, h, path)
+		if rec.Code != http.StatusNotFound {
 			t.Errorf("%s status = %d, want 404 — never fall back to the sole library", path, rec.Code)
+		}
+		// The designed page, not the stdlib's plain-text 404: this is the
+		// one 404 a stale URL actually reaches, and it is read outdoors.
+		body := rec.Body.String()
+		if !strings.Contains(body, "That code isn't valid.") {
+			t.Errorf("%s did not render the designed 404 page:\n%s", path, body)
+		}
+		// It must still name nothing, which is what makes it safe here.
+		for _, forbidden := range []string{"The Fairview Boulevard", "/b/fairview/"} {
+			if strings.Contains(body, forbidden) {
+				t.Errorf("%s leaked %q", path, forbidden)
+			}
 		}
 	}
 }
