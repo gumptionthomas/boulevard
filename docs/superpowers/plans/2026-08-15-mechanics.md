@@ -26,7 +26,8 @@
 - **Eviction is FIFO on the oldest non-pinned item.** Never popularity-aware. `views` drives nothing.
 - **Per-session limits: 3 leaves, 3 takes** (DESIGN.md §4).
 - **Never hold an open `*sql.Rows` while issuing another query.** `SetMaxOpenConns(1)` means one unclosed `Rows` owns the only connection and the next query blocks forever — a hang, not an error. Use `QueryRow` where one row is wanted (it closes itself), and `defer rows.Close()` immediately where `Query` is unavoidable. This bit Task 1's own test.
-- **The `store` package's test helpers are `openTemp(t) *Store` and `makeLibrary(t) boulevard.Library`** (both in `store_test.go`). `makeLibrary` builds a value; it does not insert — call `s.CreateLibrary(ctx, lib)` after it. Task 2 adds one shared helper, `seedLibrary(t, st)`, that does both; every later task in this package uses it rather than writing its own.
+- **The `store` package's test helpers are `openTemp(t) *Store`, `makeLibrary(t) boulevard.Library` and `seededLibrary(t, s) (boulevard.Library, []boulevard.Token)`** (all in `store_test.go`). `makeLibrary` builds a value without inserting it; `seededLibrary` inserts the library *and* a real token booklet. Task 2 adds `seedLibrary(t, st)` for the library alone.
+- **Any test that creates a `boulevard.Session` must use `seededLibrary` and a real token id from it.** `sessions.token_id` is a `REFERENCES tokens(id)` foreign key and the DSN sets `foreign_keys(1)`, so a fabricated id like `"T1"` fails to insert and the test dies before it reaches what it meant to prove. Use `seedLibrary` only for tests that never build a session.
 
 ---
 
@@ -767,10 +768,14 @@ func takeSetup(t *testing.T) (*Store, boulevard.Library, boulevard.SessionID, ti
 	t.Helper()
 	loc := chicago(t)
 	st := openTemp(t)
-	lib := seedLibrary(t, st)
+	// seededLibrary, not seedLibrary: sessions.token_id is a real
+	// REFERENCES tokens(id) foreign key and the DSN sets foreign_keys(1),
+	// so a session carrying a made-up token id fails to insert at all.
+	// seededLibrary inserts a real twelve-card booklet and hands it back.
+	lib, toks := seededLibrary(t, st)
 	now := time.Date(2026, 8, 15, 20, 25, 0, 0, loc)
 	sess := boulevard.Session{
-		ID: "SESSION1", LibraryID: lib.ID, TokenID: "T1",
+		ID: "SESSION1", LibraryID: lib.ID, TokenID: toks[0].ID,
 		CreatedAt: now, ExpiresAt: now.Add(boulevard.SessionTTL),
 	}
 	if err := st.CreateSession(context.Background(), sess); err != nil {
@@ -1992,10 +1997,13 @@ In `internal/store/session_test.go`:
 func TestLeavesCounterRoundTrips(t *testing.T) {
 	loc := chicago(t)
 	st := openTemp(t)
-	lib := seedLibrary(t, st)
+	// seededLibrary, not seedLibrary — sessions.token_id is a foreign key
+	// into tokens and the DSN enforces it, so a made-up token id will not
+	// insert. See Task 4's takeSetup for the same note.
+	lib, toks := seededLibrary(t, st)
 	now := time.Date(2026, 8, 15, 20, 25, 0, 0, loc)
 	sess := boulevard.Session{
-		ID: "S1", LibraryID: lib.ID, TokenID: "T1",
+		ID: "S1", LibraryID: lib.ID, TokenID: toks[0].ID,
 		CreatedAt: now, ExpiresAt: now.Add(boulevard.SessionTTL),
 	}
 	if err := st.CreateSession(context.Background(), sess); err != nil {
