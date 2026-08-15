@@ -114,6 +114,23 @@ func (s *Store) TakeItem(ctx context.Context, id boulevard.LibraryID,
 //
 // A duplicate undo is a no-op that returns nil, for the retry reason
 // TakeItem documents.
+//
+// ErrShelfFull here means "committed, but not re-shelved" — not "nothing
+// happened". §4's full-shelf case refuses only the *re-shelve*: the take row
+// is still deleted and the copy still restored, so the take stops counting
+// against the session's limit, while the item itself stays in the shed for
+// the steward. Only the re-shelve is conditional on there being room; the
+// delete and the restore are not, which is why they run and commit before
+// the capacity check ever has a say. The capacity check also has to run
+// after the delete for a second reason: it must not fire for a session that
+// never took this item in the first place (RowsAffected == 0), which the
+// duplicate-undo no-op rule requires regardless of shelf capacity.
+//
+// The copy restore is clamped to copies_total. A steward can re-shelve a
+// taken-to-zero item (ReshelveItem sets copies_left = copies_total) inside
+// the same 24-hour window the original taker's undo is still valid in; an
+// unclamped +1 on top of that re-shelve would hand out a copy that never
+// existed.
 func (s *Store) UntakeItem(ctx context.Context, id boulevard.LibraryID,
 	sessionID boulevard.SessionID, itemID string) error {
 
@@ -137,25 +154,6 @@ func (s *Store) UntakeItem(ctx context.Context, id boulevard.LibraryID,
 	unshed := boulevard.ItemState(state) == boulevard.ItemShed &&
 		boulevard.ShedReason(reason) == boulevard.ShedTaken
 
-	// Capacity is checked before anything is written, and only when the
-	// undo would actually put an item back. Refusing is deliberate: making
-	// room would evict someone else's item to fix this person's stray tap.
-	if unshed {
-		var slots, shelved int
-		if err := tx.QueryRowContext(ctx,
-			`SELECT slots FROM libraries WHERE id = ?`, string(id)).Scan(&slots); err != nil {
-			return fmt.Errorf("read slots for %q: %w", id, err)
-		}
-		if err := tx.QueryRowContext(ctx,
-			`SELECT COUNT(*) FROM items WHERE library_id = ? AND state = 'shelved'`,
-			string(id)).Scan(&shelved); err != nil {
-			return fmt.Errorf("count the shelf: %w", err)
-		}
-		if shelved >= slots {
-			return fmt.Errorf("shelf has %d of %d slots: %w", shelved, slots, ErrShelfFull)
-		}
-	}
-
 	res, err := tx.ExecContext(ctx,
 		`DELETE FROM session_takes WHERE session_id = ? AND item_id = ?`,
 		string(sessionID), itemID)
@@ -171,21 +169,46 @@ func (s *Store) UntakeItem(ctx context.Context, id boulevard.LibraryID,
 	}
 
 	if _, err := tx.ExecContext(ctx,
-		`UPDATE items SET copies_left = copies_left + 1, takes = takes - 1
+		`UPDATE items
+		    SET copies_left = MIN(copies_left + 1, copies_total), takes = takes - 1
 		  WHERE library_id = ? AND id = ?`, string(id), itemID); err != nil {
 		return fmt.Errorf("restore copy on %q: %w", itemID, err)
 	}
 
+	// Capacity is checked only now that the delete has proven this session
+	// actually had something to undo, and only when the undo would actually
+	// put an item back. Refusing to re-shelve is deliberate: making room
+	// would evict someone else's item to fix this person's stray tap. The
+	// take row and the copy are not held hostage to that refusal — see the
+	// doc comment above.
+	full := false
 	if unshed {
-		if _, err := tx.ExecContext(ctx,
-			`UPDATE items SET state = 'shelved', shed_at = NULL, shed_reason = ''
-			  WHERE library_id = ? AND id = ?`, string(id), itemID); err != nil {
-			return fmt.Errorf("re-shelve %q: %w", itemID, err)
+		var slots, shelved int
+		if err := tx.QueryRowContext(ctx,
+			`SELECT slots FROM libraries WHERE id = ?`, string(id)).Scan(&slots); err != nil {
+			return fmt.Errorf("read slots for %q: %w", id, err)
+		}
+		if err := tx.QueryRowContext(ctx,
+			`SELECT COUNT(*) FROM items WHERE library_id = ? AND state = 'shelved'`,
+			string(id)).Scan(&shelved); err != nil {
+			return fmt.Errorf("count the shelf: %w", err)
+		}
+		if shelved >= slots {
+			full = true
+		} else {
+			if _, err := tx.ExecContext(ctx,
+				`UPDATE items SET state = 'shelved', shed_at = NULL, shed_reason = ''
+				  WHERE library_id = ? AND id = ?`, string(id), itemID); err != nil {
+				return fmt.Errorf("re-shelve %q: %w", itemID, err)
+			}
 		}
 	}
 
 	if err := tx.Commit(); err != nil {
 		return fmt.Errorf("commit untake: %w", err)
+	}
+	if full {
+		return fmt.Errorf("undid the take, but the shelf is full: %w", ErrShelfFull)
 	}
 	return nil
 }
