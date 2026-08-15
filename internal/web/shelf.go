@@ -33,6 +33,7 @@ type pageData struct {
 // map — a v2 surface with its own design (DESIGN.md §10). Each library stays
 // reachable at its canonical /b/{slug}/ either way; only the convenience
 // redirect is withheld.
+//
 // One query, not two: the slug list answers "how many are there" as well as
 // "which one", so counting first was a second round trip and a window in
 // which a library could appear between the count and the list.
