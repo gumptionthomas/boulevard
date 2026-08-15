@@ -1,0 +1,13 @@
+{{define "shelf.html"}}{{template "layout" .}}{{end}}
+{{define "body"}}
+{{if .Deadline}}<div class="banner">You're at the box.<span>You can leave or take until {{.Deadline}}.</span></div>{{end}}
+<main>
+  <div class="site">{{.LibraryName}}</div>
+  <div class="empty">
+    <h2>The shelf is empty.</h2>
+    <p class="dim">Nothing here yet. That's an invitation.</p>
+    {{if not .Deadline}}<p class="dim">Scan the code at the box to take or leave something.</p>{{end}}
+    <p class="inert">+ Leave something</p>
+  </div>
+</main>
+{{end}}

@@ -21,6 +21,8 @@ func main() {
 	switch os.Args[1] {
 	case "booklet":
 		os.Exit(runBooklet(os.Args[2:]))
+	case "serve":
+		os.Exit(runServe(os.Args[2:]))
 	case "version":
 		os.Exit(runVersion())
 	default:
@@ -35,6 +37,7 @@ func usage() {
 
 Usage:
   boulevard booklet --name NAME --location LABEL --base-url URL [flags]
+  boulevard serve [--db PATH] [--addr ADDR]
   boulevard version
 `)
 }

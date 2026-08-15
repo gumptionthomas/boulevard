@@ -1,9 +1,22 @@
 // Package store is the SQLite persistence layer.
 //
-// Every method takes a library identifier explicitly. There is no ambient
-// "current library" value anywhere — DESIGN.md §10 requires that the v1
-// single-library build never assume a singleton, so the host layer is
-// reachable later without a refactor.
+// No method infers a current library. There is no ambient "current library"
+// value anywhere, and nothing falls back to "the only one" — DESIGN.md §10
+// requires that the v1 single-library build never assume a singleton, so the
+// host layer is reachable later without a refactor.
+//
+// Three shapes of method follow from that, and only the third takes a
+// boulevard.LibraryID:
+//
+//   - Resolution boundaries are handed an identifier and return what it
+//     names, including which library that is: LibraryBySlug, LibraryByID,
+//     TokenBySecret, SessionByID, and DeleteSession. Resolving the library
+//     is their job, so they cannot be given one.
+//   - Host-scoped queries ask about the host rather than a shelf, so a
+//     library identifier would be meaningless on them: LibrarySlugs.
+//   - Everything else takes an explicit boulevard.LibraryID, and where it
+//     also takes something already carrying one — RecordScan — it rejects
+//     the pair if they disagree.
 package store
 
 import (

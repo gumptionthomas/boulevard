@@ -11,21 +11,35 @@ Libraries stand.
 
 ## Status
 
-Milestone 0 — the booklet generator. No server yet.
+Milestone 1 — presence. The booklet generator plus the first HTTP server.
 
     boulevard booklet --name "The Fairview Boulevard" \
                       --location "4th & Fairview, Minneapolis" \
                       --base-url https://boulevard.example.org
+    boulevard serve --addr :8080
 
-This writes `boulevard.db` and a printable `boulevard-booklet.pdf`: twelve
-tear-off monthly cards, a permanent browse sign, and a cover sheet.
+`booklet` writes `boulevard.db` and a printable `boulevard-booklet.pdf`.
+`serve` puts the shelf on the web: scanning a card grants a 24-hour session,
+and the page tells you so. The shelf itself holds no items yet — that is
+Milestone 2.
 
-Re-running reprints the *same* cards rather than minting new ones — the
-library is looked up by its slug, which is derived from `--name`, so the run
-says which library it is about to touch before it touches it.
+**`serve` speaks plain HTTP.** It terminates no TLS, so an `https://`
+`--base-url` needs a reverse proxy in front of it doing that. Get this right
+before printing: the twelve cards are permanent, and a card whose URL cannot
+connect is a card that has to be reprinted. To try it on a home network
+first, use the LAN address the phone can actually reach —
+`--base-url http://<lan-ip>:8080` with `serve --addr 0.0.0.0:8080`, as
+`docs/presence-acceptance.md` describes.
 
-Both files are written owner-readable only: the database holds every token
-secret in plaintext, and every card in the PDF carries one in its QR.
+Re-running `booklet` reprints the *same* cards rather than minting new ones —
+the library is looked up by its slug, which is derived from `--name`, so the
+run says which library it is about to touch before it touches it.
+
+Both `boulevard.db` and the PDF are written owner-readable only: the
+database holds every token secret in plaintext, and every card in the PDF
+carries one in its QR. A secret is the write credential for the shelf, so
+anyone who can read either file can leave and take without ever standing at
+the box.
 
 ## Building
 
@@ -41,7 +55,8 @@ To stamp version metadata:
 ## Documentation
 
 - `DESIGN.md` — the v1 specification and source of truth
-- `docs/booklet-acceptance.md` — the manual print-and-scan checklist
+- `docs/booklet-acceptance.md` — Milestone 0 manual print-and-scan checklist
+- `docs/presence-acceptance.md` — Milestone 1 manual acceptance checklist
 - `docs/superpowers/specs/` — per-milestone design documents
 
 ## License

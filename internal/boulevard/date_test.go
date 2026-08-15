@@ -85,3 +85,27 @@ func TestMonthName(t *testing.T) {
 		t.Errorf("MonthName() = %q, want %q", got, "August")
 	}
 }
+
+func TestAddDays(t *testing.T) {
+	tests := []struct {
+		name string
+		in   Date
+		n    int
+		want Date
+	}{
+		{"forward within month", NewDate(2026, time.August, 14), 7, NewDate(2026, time.August, 21)},
+		{"backward within month", NewDate(2026, time.August, 14), -7, NewDate(2026, time.August, 7)},
+		{"forward across month end", NewDate(2026, time.August, 31), 7, NewDate(2026, time.September, 7)},
+		{"backward across month start", NewDate(2026, time.September, 1), -7, NewDate(2026, time.August, 25)},
+		{"forward across year end", NewDate(2026, time.December, 31), 1, NewDate(2027, time.January, 1)},
+		{"into leap day", NewDate(2028, time.February, 28), 1, NewDate(2028, time.February, 29)},
+		{"zero is identity", NewDate(2026, time.August, 14), 0, NewDate(2026, time.August, 14)},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := tc.in.AddDays(tc.n); !got.Equal(tc.want) {
+				t.Errorf("AddDays(%d) = %v, want %v", tc.n, got, tc.want)
+			}
+		})
+	}
+}

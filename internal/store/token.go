@@ -2,6 +2,8 @@ package store
 
 import (
 	"context"
+	"database/sql"
+	"errors"
 	"fmt"
 	"time"
 
@@ -81,4 +83,111 @@ func (s *Store) TokensForLibrary(ctx context.Context, id boulevard.LibraryID) ([
 		out = append(out, tok)
 	}
 	return out, rows.Err()
+}
+
+// TokenBySecret resolves a scanned secret to its token.
+//
+// This takes no LibraryID, and that is deliberate rather than an oversight.
+// Secrets are unique host-wide (DESIGN.md §10) precisely so a token
+// identifies its own library; this is an identifier-resolution boundary,
+// like LibraryBySlug. Everything downstream stays library-scoped.
+func (s *Store) TokenBySecret(ctx context.Context, secret string) (boulevard.Token, error) {
+	var (
+		tok       boulevard.Token
+		libID     string
+		from, til string
+		state     string
+		seen      *string
+	)
+	err := s.db.QueryRowContext(ctx,
+		`SELECT id, library_id, secret, period_index, valid_from, valid_until, state, first_seen_at
+		   FROM tokens WHERE secret = ?`, secret).
+		Scan(&tok.ID, &libID, &tok.Secret, &tok.PeriodIndex, &from, &til, &state, &seen)
+	if errors.Is(err, sql.ErrNoRows) {
+		return boulevard.Token{}, fmt.Errorf("token by secret: %w", ErrNotFound)
+	}
+	if err != nil {
+		return boulevard.Token{}, fmt.Errorf("look up token by secret: %w", err)
+	}
+
+	tok.LibraryID = boulevard.LibraryID(libID)
+	tok.State = boulevard.TokenState(state)
+	if tok.ValidFrom, err = boulevard.ParseDate(from); err != nil {
+		return boulevard.Token{}, fmt.Errorf("token %s valid_from: %w", tok.ID, err)
+	}
+	if tok.ValidUntil, err = boulevard.ParseDate(til); err != nil {
+		return boulevard.Token{}, fmt.Errorf("token %s valid_until: %w", tok.ID, err)
+	}
+	if seen != nil {
+		t, err := time.Parse(time.RFC3339, *seen)
+		if err != nil {
+			return boulevard.Token{}, fmt.Errorf("token %s first_seen_at: %w", tok.ID, err)
+		}
+		tok.FirstSeenAt = &t
+	}
+	return tok, nil
+}
+
+// RecordScan stamps first_seen_at and advances the active card.
+//
+// Activation only ever moves forward (spec §7). An older card scanned
+// inside its grace window is still recorded as seen and still grants its
+// caller a session, but it must not displace a newer active card — a stray
+// card found in a drawer cannot be allowed to rewind the steward's sense of
+// which card is in the door.
+//
+// Both updates happen in one transaction: a stamped scan that failed to
+// advance the state would misreport the shelf.
+func (s *Store) RecordScan(ctx context.Context, id boulevard.LibraryID, tok boulevard.Token, now time.Time) error {
+	if tok.LibraryID != id {
+		return fmt.Errorf("token %s belongs to library %q, not %q", tok.ID, tok.LibraryID, id)
+	}
+
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("begin record scan: %w", err)
+	}
+	defer tx.Rollback()
+
+	if tok.FirstSeenAt == nil {
+		if _, err := tx.ExecContext(ctx,
+			`UPDATE tokens SET first_seen_at = ? WHERE id = ? AND first_seen_at IS NULL`,
+			now.UTC().Format(time.RFC3339), tok.ID); err != nil {
+			return fmt.Errorf("stamp first_seen_at on %s: %w", tok.ID, err)
+		}
+	}
+
+	var activePeriod int
+	err = tx.QueryRowContext(ctx,
+		`SELECT period_index FROM tokens WHERE library_id = ? AND state = ?`,
+		string(id), string(boulevard.TokenActive)).Scan(&activePeriod)
+	switch {
+	case errors.Is(err, sql.ErrNoRows):
+		// Nothing active yet, so any token may take the slot. 0 works as
+		// the sentinel only because period_index is 1-based (DESIGN.md §4:
+		// "period_index INT -- 1..12"), which makes every real card strictly
+		// greater than it. A 0-based index would silently refuse to activate
+		// the first card of a booklet.
+		activePeriod = 0
+	case err != nil:
+		return fmt.Errorf("find active token for %q: %w", id, err)
+	}
+
+	if tok.PeriodIndex > activePeriod {
+		if _, err := tx.ExecContext(ctx,
+			`UPDATE tokens SET state = ? WHERE library_id = ? AND state = ?`,
+			string(boulevard.TokenExpired), string(id), string(boulevard.TokenActive)); err != nil {
+			return fmt.Errorf("expire previous active token: %w", err)
+		}
+		if _, err := tx.ExecContext(ctx,
+			`UPDATE tokens SET state = ? WHERE id = ?`,
+			string(boulevard.TokenActive), tok.ID); err != nil {
+			return fmt.Errorf("activate token %s: %w", tok.ID, err)
+		}
+	}
+
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("commit record scan: %w", err)
+	}
+	return nil
 }

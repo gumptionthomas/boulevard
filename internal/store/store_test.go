@@ -278,3 +278,263 @@ func TestWALModeIsEnabled(t *testing.T) {
 		t.Errorf("journal_mode = %q, want %q (DESIGN.md §2)", mode, "wal")
 	}
 }
+
+// TestTokenBySecretResolvesItsLibrary is the only test of the milestone's
+// load-bearing architectural claim: a secret is unique host-wide, so it
+// identifies its own library and nothing has to be told which shelf a scan
+// belongs to. Two libraries, each with a full booklet, so the lookup has to
+// pick the right one rather than the only one.
+//
+// It asserts State and Secret as well. They are adjacent TEXT columns, and
+// swapping them in the Scan argument list would leave every other assertion
+// green while making a revoked card undetectable — which is the difference
+// between a revoked card failing and a revoked card minting sessions.
+func TestTokenBySecretResolvesItsLibrary(t *testing.T) {
+	ctx, s := context.Background(), openTemp(t)
+
+	lib := makeLibrary(t)
+	if err := s.CreateLibrary(ctx, lib); err != nil {
+		t.Fatal(err)
+	}
+	toks := makeTokens(t, lib.ID)
+	if err := s.InsertTokens(ctx, lib.ID, toks); err != nil {
+		t.Fatal(err)
+	}
+
+	other := makeLibrary(t)
+	otherID, err := boulevard.NewLibraryID(rand.Reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	other.ID, other.Slug, other.Name = otherID, "whittier", "The Whittier Boulevard"
+	if err := s.CreateLibrary(ctx, other); err != nil {
+		t.Fatal(err)
+	}
+	otherToks := makeTokens(t, other.ID)
+	// A revoked card in the neighbouring booklet, so the state assertion
+	// below has something to be wrong about.
+	otherToks[3].State = boulevard.TokenRevoked
+	if err := s.InsertTokens(ctx, other.ID, otherToks); err != nil {
+		t.Fatal(err)
+	}
+
+	for _, tc := range []struct {
+		name string
+		lib  boulevard.Library
+		want boulevard.Token
+	}{
+		{"first library", lib, toks[3]},
+		{"second library", other, otherToks[3]},
+		{"second library, another period", other, otherToks[7]},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			got, err := s.TokenBySecret(ctx, tc.want.Secret)
+			if err != nil {
+				t.Fatalf("TokenBySecret: %v", err)
+			}
+			if got.ID != tc.want.ID {
+				t.Errorf("ID = %q, want %q", got.ID, tc.want.ID)
+			}
+			if got.LibraryID != tc.lib.ID {
+				t.Errorf("LibraryID = %q, want %q — the secret must identify its own library", got.LibraryID, tc.lib.ID)
+			}
+			if got.Secret != tc.want.Secret {
+				t.Errorf("Secret = %q, want %q", got.Secret, tc.want.Secret)
+			}
+			if got.State != tc.want.State {
+				t.Errorf("State = %q, want %q — a misread state is a revoked card that still works", got.State, tc.want.State)
+			}
+			if got.PeriodIndex != tc.want.PeriodIndex {
+				t.Errorf("PeriodIndex = %d, want %d", got.PeriodIndex, tc.want.PeriodIndex)
+			}
+			if !got.ValidFrom.Equal(tc.want.ValidFrom) || !got.ValidUntil.Equal(tc.want.ValidUntil) {
+				t.Errorf("window = %v..%v, want %v..%v", got.ValidFrom, got.ValidUntil, tc.want.ValidFrom, tc.want.ValidUntil)
+			}
+		})
+	}
+}
+
+func TestTokenBySecretUnknownIsErrNotFound(t *testing.T) {
+	ctx, s := context.Background(), openTemp(t)
+	_, err := s.TokenBySecret(ctx, "QQQQQQQQQQQQQQQQQQQQQQQQQQ")
+	if !errors.Is(err, ErrNotFound) {
+		t.Errorf("err = %v, want ErrNotFound", err)
+	}
+}
+
+func TestLibraryByID(t *testing.T) {
+	ctx, s := context.Background(), openTemp(t)
+	lib := makeLibrary(t)
+	if err := s.CreateLibrary(ctx, lib); err != nil {
+		t.Fatal(err)
+	}
+	got, err := s.LibraryByID(ctx, lib.ID)
+	if err != nil {
+		t.Fatalf("LibraryByID: %v", err)
+	}
+	if got != lib {
+		t.Errorf("got %+v, want %+v", got, lib)
+	}
+
+	if _, err := s.LibraryByID(ctx, boulevard.LibraryID("NOPE")); !errors.Is(err, ErrNotFound) {
+		t.Errorf("missing id err = %v, want ErrNotFound", err)
+	}
+}
+
+// TestLibraryCountsAreTheSlugListsLength replaces TestLibraryCount, which
+// covered a LibraryCount method removed along with its only caller: the slug
+// list answers both "how many" and "which one", so counting first was a
+// second query and a window in which the answer could change between them.
+// The counting behaviour itself is still asserted, through the method that
+// survived.
+func TestLibraryCountsAreTheSlugListsLength(t *testing.T) {
+	ctx, s := context.Background(), openTemp(t)
+	if got, err := s.LibrarySlugs(ctx); err != nil || len(got) != 0 {
+		t.Fatalf("empty database = %v, %v; want no slugs, nil", got, err)
+	}
+	a := makeLibrary(t)
+	if err := s.CreateLibrary(ctx, a); err != nil {
+		t.Fatal(err)
+	}
+	if got, _ := s.LibrarySlugs(ctx); len(got) != 1 {
+		t.Errorf("count = %d, want 1", len(got))
+	}
+	b := makeLibrary(t)
+	b.Slug = "other"
+	bID, _ := boulevard.NewLibraryID(rand.Reader)
+	b.ID = bID
+	if err := s.CreateLibrary(ctx, b); err != nil {
+		t.Fatal(err)
+	}
+	if got, _ := s.LibrarySlugs(ctx); len(got) != 2 {
+		t.Errorf("count = %d, want 2", len(got))
+	}
+}
+
+func seededLibrary(t *testing.T, s *Store) (boulevard.Library, []boulevard.Token) {
+	t.Helper()
+	ctx := context.Background()
+	lib := makeLibrary(t)
+	if err := s.CreateLibrary(ctx, lib); err != nil {
+		t.Fatal(err)
+	}
+	toks := makeTokens(t, lib.ID)
+	if err := s.InsertTokens(ctx, lib.ID, toks); err != nil {
+		t.Fatal(err)
+	}
+	return lib, toks
+}
+
+func stateOf(t *testing.T, s *Store, lib boulevard.Library, periodIndex int) boulevard.Token {
+	t.Helper()
+	all, err := s.TokensForLibrary(context.Background(), lib.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, tok := range all {
+		if tok.PeriodIndex == periodIndex {
+			return tok
+		}
+	}
+	t.Fatalf("no token with period %d", periodIndex)
+	return boulevard.Token{}
+}
+
+func TestRecordScanActivatesAndStampsFirstSeen(t *testing.T) {
+	ctx, s := context.Background(), openTemp(t)
+	lib, toks := seededLibrary(t, s)
+	now := time.Date(2026, time.September, 3, 12, 0, 0, 0, time.UTC)
+
+	if err := s.RecordScan(ctx, lib.ID, toks[1], now); err != nil {
+		t.Fatalf("RecordScan: %v", err)
+	}
+	got := stateOf(t, s, lib, 2)
+	if got.State != boulevard.TokenActive {
+		t.Errorf("state = %q, want active", got.State)
+	}
+	if got.FirstSeenAt == nil {
+		t.Fatal("FirstSeenAt is nil, want it stamped")
+	}
+	if !got.FirstSeenAt.Equal(now) {
+		t.Errorf("FirstSeenAt = %v, want %v", got.FirstSeenAt, now)
+	}
+}
+
+func TestRecordScanAdvancesActiveAndExpiresPredecessor(t *testing.T) {
+	ctx, s := context.Background(), openTemp(t)
+	lib, toks := seededLibrary(t, s)
+	now := time.Date(2026, time.September, 3, 12, 0, 0, 0, time.UTC)
+
+	if err := s.RecordScan(ctx, lib.ID, toks[1], now); err != nil {
+		t.Fatal(err)
+	}
+	later := now.AddDate(0, 1, 0)
+	if err := s.RecordScan(ctx, lib.ID, toks[2], later); err != nil {
+		t.Fatal(err)
+	}
+
+	if got := stateOf(t, s, lib, 3); got.State != boulevard.TokenActive {
+		t.Errorf("period 3 state = %q, want active", got.State)
+	}
+	if got := stateOf(t, s, lib, 2); got.State != boulevard.TokenExpired {
+		t.Errorf("period 2 state = %q, want expired", got.State)
+	}
+}
+
+func TestRecordScanOfAnOlderTokenDoesNotRewindActive(t *testing.T) {
+	// 3 September, the September card is active. Someone finds the August
+	// card — never scanned, because the steward forgot to put it up — and
+	// scans it inside its grace window. It must be seen, but must not
+	// become the active card. (Spec §7.)
+	ctx, s := context.Background(), openTemp(t)
+	lib, toks := seededLibrary(t, s)
+	now := time.Date(2026, time.September, 3, 12, 0, 0, 0, time.UTC)
+
+	if err := s.RecordScan(ctx, lib.ID, toks[1], now); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.RecordScan(ctx, lib.ID, toks[0], now.Add(time.Hour)); err != nil {
+		t.Fatalf("scanning an older token must still succeed: %v", err)
+	}
+
+	if got := stateOf(t, s, lib, 2); got.State != boulevard.TokenActive {
+		t.Errorf("period 2 state = %q, want it still active", got.State)
+	}
+	old := stateOf(t, s, lib, 1)
+	if old.State == boulevard.TokenActive {
+		t.Error("period 1 became active; activation must only move forward")
+	}
+	if old.FirstSeenAt == nil {
+		t.Error("period 1 FirstSeenAt is nil; an older scan must still be recorded")
+	}
+}
+
+func TestRecordScanDoesNotOverwriteFirstSeen(t *testing.T) {
+	ctx, s := context.Background(), openTemp(t)
+	lib, toks := seededLibrary(t, s)
+	first := time.Date(2026, time.September, 3, 12, 0, 0, 0, time.UTC)
+	second := first.Add(48 * time.Hour)
+
+	if err := s.RecordScan(ctx, lib.ID, toks[1], first); err != nil {
+		t.Fatal(err)
+	}
+	seen := stateOf(t, s, lib, 2)
+	if err := s.RecordScan(ctx, lib.ID, seen, second); err != nil {
+		t.Fatal(err)
+	}
+	got := stateOf(t, s, lib, 2)
+	if !got.FirstSeenAt.Equal(first) {
+		t.Errorf("FirstSeenAt = %v, want the original %v — it records the FIRST scan", got.FirstSeenAt, first)
+	}
+}
+
+func TestRecordScanRejectsAForeignToken(t *testing.T) {
+	ctx, s := context.Background(), openTemp(t)
+	lib, toks := seededLibrary(t, s)
+	other := toks[0]
+	other.LibraryID = boulevard.LibraryID("SOMEONEELSE")
+	if err := s.RecordScan(ctx, lib.ID, other, time.Now()); err == nil {
+		t.Error("recording a token from another library succeeded, want an error")
+	}
+	_ = lib
+}
