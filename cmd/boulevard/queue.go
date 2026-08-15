@@ -109,10 +109,10 @@ func runQueue(args []string) int {
 	fmt.Printf("\n  %d waiting for %s\n\n", len(pending), lib.Name)
 	for _, it := range pending {
 		fmt.Printf("  [%s]  %s\n", strings.ToLower(it.ID[:4]), it.Type)
-		fmt.Printf("          %s\n", it.Note)
-		fmt.Printf("          %s\n", firstLine(it.Payload))
+		fmt.Printf("          %s\n", displayLine(it.Note))
+		fmt.Printf("          %s\n", displayLine(it.Payload))
 		if it.Attribution != "" {
-			fmt.Printf("          left by %s\n", it.Attribution)
+			fmt.Printf("          left by %s\n", boulevard.Sanitize(it.Attribution))
 		}
 		fmt.Printf("          %s\n\n", it.LeftAt.Local().Format("2 Jan, 3:04 PM"))
 	}
@@ -120,13 +120,39 @@ func runQueue(args []string) int {
 	return exitOK
 }
 
-// firstLine keeps a multi-line text payload from flooding the terminal.
+// displayLine renders one field of a stranger's submission as exactly one
+// harmless line of terminal output.
+//
+// Both halves are load-bearing. firstLine bounds it: a note is capped at
+// 1,000 runes but not at one line, so without this the queue can be made to
+// scroll a real entry off the top of the window. Sanitize defuses it: an
+// escape sequence in a note is a cursor instruction, and a hostile leaver
+// who can move the cursor can redraw the entry above their own — the steward
+// then reads one item and types the handle of another.
+//
+// Sanitizing after firstLine, not before, so the line break the person
+// actually typed still ends the line rather than becoming a space in the
+// middle of one.
+func displayLine(s string) string {
+	return boulevard.Sanitize(firstLine(s))
+}
+
+// firstLine keeps a multi-line or very long field from flooding the terminal.
+//
+// Counted in runes, like the validation layer: slicing bytes splits a
+// multi-byte rune and prints a replacement character in place of whatever the
+// person wrote.
 func firstLine(s string) string {
+	const maxRunes = 70
+	trimmed := false
 	if i := strings.IndexByte(s, '\n'); i >= 0 {
-		return s[:i] + " …"
+		s, trimmed = s[:i], true
 	}
-	if len(s) > 70 {
-		return s[:70] + " …"
+	if r := []rune(s); len(r) > maxRunes {
+		s, trimmed = string(r[:maxRunes]), true
+	}
+	if trimmed {
+		return s + " …"
 	}
 	return s
 }

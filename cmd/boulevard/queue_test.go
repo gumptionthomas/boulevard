@@ -61,6 +61,46 @@ func TestResolvePrefixRefusesAnEmptyPrefix(t *testing.T) {
 	}
 }
 
+// TestDisplayLineIsOneHarmlessLine covers the failure the queue's printing
+// exists to prevent: a stranger's note is printed straight into the
+// steward's terminal, so an escape sequence in it is a cursor instruction.
+// A leaver who can move the cursor can draw a forged entry over a real one
+// and get a different item approved than the one that was read.
+func TestDisplayLineIsOneHarmlessLine(t *testing.T) {
+	for _, tc := range []struct{ name, in, want string }{
+		{"plain text is untouched", "Reminded me of the alley cat.", "Reminded me of the alley cat."},
+		{"a second line is dropped", "the real note\nthe forged one", "the real note …"},
+		{"an escape is defused", "note\x1b[1A\x1b[2K", "note [1A [2K"},
+		{"an escape before the break is defused too", "a\x1b[2Kb\nc", "a [2Kb …"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			got := displayLine(tc.in)
+			if got != tc.want {
+				t.Errorf("displayLine(%q) = %q, want %q", tc.in, got, tc.want)
+			}
+			if strings.ContainsAny(got, "\n\r\x1b") {
+				t.Errorf("displayLine(%q) = %q, which can still steer a terminal", tc.in, got)
+			}
+		})
+	}
+}
+
+func TestFirstLineCountsRunesNotBytes(t *testing.T) {
+	// s[:70] splits a multi-byte rune and prints U+FFFD in place of what the
+	// person wrote. The validation layer counts runes; so does this.
+	long := strings.Repeat("é", 100)
+	got := firstLine(long)
+	if want := strings.Repeat("é", 70) + " …"; got != want {
+		t.Errorf("firstLine truncated to %q, want %q", got, want)
+	}
+	if strings.ContainsRune(got, '�') {
+		t.Error("firstLine split a multi-byte rune")
+	}
+	if short := strings.Repeat("é", 70); firstLine(short) != short {
+		t.Error("a payload exactly at the limit was truncated")
+	}
+}
+
 func TestQueueCommandsRejectAMissingDatabase(t *testing.T) {
 	for name, run := range map[string]func([]string) int{
 		"queue":   runQueue,

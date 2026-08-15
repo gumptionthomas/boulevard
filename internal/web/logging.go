@@ -5,6 +5,8 @@ import (
 	"net/http"
 	"strings"
 	"time"
+
+	"github.com/gumptionthomas/boulevard/internal/boulevard"
 )
 
 // logRequests writes one line per request: method, path, status, duration.
@@ -41,8 +43,17 @@ func (w *statusWriter) WriteHeader(status int) {
 	w.ResponseWriter.WriteHeader(status)
 }
 
-// redactPath removes the secret from a scan URL. Everything else on this
-// server is a public path with nothing in it worth hiding.
+// redactPath removes the secret from a scan URL, and defuses everything it
+// does log. Everything else on this server is a public path with nothing in
+// it worth hiding — but "harmless" is not the same as "inert".
+//
+// r.URL.Path is percent-decoded, so a slug a stranger can put in a link
+// carries any byte they like, newline included. Logging it raw lets
+// /b/x%0A2026-08-15%20GET%20/%20200/leave write a second, forged line into
+// the file a steward reads when the box "doesn't work" — and the same
+// escape sequences that can redraw the approval queue can redraw a log
+// tailed in a terminal. Sanitize is the same helper the queue prints
+// through, for the same reason.
 //
 // The prefix test is case-insensitive on purpose, and it is not symmetry for
 // its own sake. Go's ServeMux is case-sensitive, so a request to /S/<secret>
@@ -55,5 +66,5 @@ func redactPath(p string) string {
 	if strings.HasPrefix(strings.ToLower(p), "/s/") {
 		return "/s/<redacted>"
 	}
-	return p
+	return boulevard.Sanitize(p)
 }
