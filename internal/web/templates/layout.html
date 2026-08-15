@@ -62,10 +62,15 @@ button[disabled] { opacity:.4; }
    the filled black button — on a twelve-item shelf that reads as twelve
    equally loud slabs, and the one that gives an item back is the one that
    most needs to look different. Outline weight, not smaller or greyer:
-   same padding and border-radius as the primary button, so the tap target
-   stays full-sized, and the same #14130d/#fdfcf9 ink pair a.btn already
-   uses for its own outline style, which clears WCAG AA against both
-   backgrounds in both colour schemes. */
+   .linkish itself changes only fill and ink, never sizing, so it always
+   inherits whatever padding and border-radius the button rules below give
+   it — full-size (button's own 15px/9px) on item.html's single control,
+   and the same reduced-but-still-large 12px/22px/9px .item form button
+   gives every per-item control on the shelf, .linkish included. Either
+   way the tap target is not shrunk specifically because it's an undo, and
+   the fill uses the same #14130d/#fdfcf9 ink pair a.btn already uses for
+   its own outline style, which clears WCAG AA against both backgrounds in
+   both colour schemes. */
 .linkish { background:transparent; border:2px solid #14130d; color:#14130d; }
 /* On the shelf, each item's own take/undo control sits inside a repeated
    .item card, not the page's one primary action — a full-width button per
