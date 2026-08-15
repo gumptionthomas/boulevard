@@ -1,0 +1,11 @@
+{{define "notyet.html"}}{{template "layout" .}}{{end}}
+{{define "body"}}
+<main>
+  <div class="site">{{.LibraryName}}</div>
+  <h1>This card isn't in use yet.</h1>
+  <p>The card you scanned is <b>{{.CardLabel}}</b>. It starts working on {{.StartsOn}}.</p>
+  <p>Until then, the card taped inside the box door is an earlier one.</p>
+  <p class="dim">Nothing is wrong with the shelf. You just can't leave or take with this card yet.</p>
+  <a class="btn" href="{{.ShelfURL}}">Browse the shelf anyway</a>
+</main>
+{{end}}

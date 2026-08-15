@@ -27,8 +27,8 @@ func TestValidateBoundaries(t *testing.T) {
 		today boulevard.Date
 		want  Outcome
 	}{
-		{"long before", boulevard.NewDate(2026, time.July, 1), OutOfWindow},
-		{"day before grace opens", boulevard.NewDate(2026, time.August, 24), OutOfWindow},
+		{"long before", boulevard.NewDate(2026, time.July, 1), NotYet},
+		{"day before grace opens", boulevard.NewDate(2026, time.August, 24), NotYet},
 		{"first day of grace", boulevard.NewDate(2026, time.August, 25), Granted},
 		{"day before the window", boulevard.NewDate(2026, time.August, 31), Granted},
 		{"first day of the window", boulevard.NewDate(2026, time.September, 1), Granted},
@@ -36,8 +36,8 @@ func TestValidateBoundaries(t *testing.T) {
 		{"last day of the window", boulevard.NewDate(2026, time.September, 30), Granted},
 		{"first day after the window", boulevard.NewDate(2026, time.October, 1), Granted},
 		{"last day of grace", boulevard.NewDate(2026, time.October, 7), Granted},
-		{"day after grace closes", boulevard.NewDate(2026, time.October, 8), OutOfWindow},
-		{"long after", boulevard.NewDate(2027, time.January, 1), OutOfWindow},
+		{"day after grace closes", boulevard.NewDate(2026, time.October, 8), Expired},
+		{"long after", boulevard.NewDate(2027, time.January, 1), Expired},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
@@ -45,6 +45,25 @@ func TestValidateBoundaries(t *testing.T) {
 				t.Errorf("Validate(_, %v, %d) = %v, want %v", tc.today, GraceDays, got, tc.want)
 			}
 		})
+	}
+}
+
+// TestValidateSeparatesTooEarlyFromExpired pins the distinction the copy
+// depends on. A single OutOfWindow outcome told the holder of a card eleven
+// months in the future that it was "out of date" and had "stopped working"
+// on a day that has not happened.
+func TestValidateSeparatesTooEarlyFromExpired(t *testing.T) {
+	tok := septemberToken()
+	early := Validate(tok, boulevard.NewDate(2026, time.August, 24), GraceDays)
+	late := Validate(tok, boulevard.NewDate(2026, time.October, 8), GraceDays)
+	if early != NotYet {
+		t.Errorf("the day before grace opens = %v, want NotYet", early)
+	}
+	if late != Expired {
+		t.Errorf("the day after grace closes = %v, want Expired", late)
+	}
+	if early == late {
+		t.Error("both sides of the window resolved to the same outcome; the copy cannot then be accurate for both")
 	}
 }
 
@@ -89,7 +108,8 @@ func TestOutcomeString(t *testing.T) {
 		want string
 	}{
 		{Invalid, "invalid"},
-		{OutOfWindow, "out-of-window"},
+		{NotYet, "not-yet"},
+		{Expired, "expired"},
 		{Granted, "granted"},
 	} {
 		if got := tc.o.String(); got != tc.want {

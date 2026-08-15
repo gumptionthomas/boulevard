@@ -21,6 +21,7 @@ type pageData struct {
 	ShelfURL    string
 	CardLabel   string
 	StoppedOn   string
+	StartsOn    string
 	SourceURL   string
 	BuildLine   string
 }

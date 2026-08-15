@@ -131,7 +131,7 @@ tokens
 1. Look up token by secret. Unknown → generic failure page.
 2. `state == revoked` → generic failure page.
 3. Today within `[valid_from - grace, valid_until + grace]`, grace = **7 days**. The grace window is what makes a human-swapped paper card work.
-4. Outside the window but token is otherwise valid → show a "this card is out of date, the steward needs to swap it" page. Distinct from failure; it is diagnostic information the steward needs.
+4. Outside the window but token is otherwise valid → a diagnostic page, distinct from failure, and **which one depends on the side**. Past the window plus grace: "this card is out of date, the steward needs to swap it", naming the day it stopped working. Before the window plus grace — a spare card from the booklet, or a card swapped in early — "this card isn't in use yet", naming the day it starts working, with the year when that day falls in another calendar year. Telling the holder of next July's card that it is out of date and stopped working on a date that has not happened sends a steward looking for a fault that does not exist.
 5. On first valid scan, set `first_seen_at`. Mark the token `active` **only if its period is later than the current active token's**, expiring the previous active token when it is. A token older than the current active one still grants a session and still records `first_seen_at`, but does not become active — otherwise a stray card found in a drawer could rewind the steward's sense of which card is in the door.
 
 **Steward overrides:** force-activate any pending card (swapped early), extend the current card (booklet lost, replacement not printed yet), revoke a card (sheet stolen or photographed).

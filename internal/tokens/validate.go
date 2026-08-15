@@ -17,10 +17,16 @@ const (
 	// card that its secret was real (DESIGN.md §4).
 	Invalid Outcome = iota
 
-	// OutOfWindow is a real, un-revoked token outside its window plus grace.
-	// This is deliberately NOT a failure: it is the diagnostic a steward
-	// needs in order to know the card must be swapped.
-	OutOfWindow
+	// NotYet is a real, un-revoked token whose window plus grace has not
+	// opened. Reachable today: a neighbour scanning a spare card from the
+	// booklet, or a steward swapping a card more than seven days early —
+	// which DESIGN.md §4 explicitly anticipates under force-activate.
+	NotYet
+
+	// Expired is a real, un-revoked token past its window plus grace. This
+	// is deliberately NOT a failure: it is the diagnostic a steward needs in
+	// order to know the card must be swapped.
+	Expired
 
 	// Granted mints a session.
 	Granted
@@ -28,8 +34,10 @@ const (
 
 func (o Outcome) String() string {
 	switch o {
-	case OutOfWindow:
-		return "out-of-window"
+	case NotYet:
+		return "not-yet"
+	case Expired:
+		return "expired"
 	case Granted:
 		return "granted"
 	default:
@@ -42,14 +50,21 @@ func (o Outcome) String() string {
 // The caller resolves the secret first; a miss is Invalid without ever
 // reaching here. `today` is a parameter rather than a clock read so the
 // grace boundaries can be tested on the exact day.
+//
+// The two sides of the window are distinct outcomes rather than one
+// OutOfWindow, because they need opposite copy — "it stopped working on" is
+// a lie about a card that has not started. Deciding it here keeps every
+// comparison against the grace window in the one pure, boundary-tested
+// place; the handler picks a page and does no date reasoning of its own.
 func Validate(tok boulevard.Token, today boulevard.Date, grace int) Outcome {
 	if tok.State == boulevard.TokenRevoked {
 		return Invalid
 	}
-	from := tok.ValidFrom.AddDays(-grace)
-	until := tok.ValidUntil.AddDays(grace)
-	if today.Before(from) || today.After(until) {
-		return OutOfWindow
+	if today.Before(tok.ValidFrom.AddDays(-grace)) {
+		return NotYet
+	}
+	if today.After(tok.ValidUntil.AddDays(grace)) {
+		return Expired
 	}
 	return Granted
 }

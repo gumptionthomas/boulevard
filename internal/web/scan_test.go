@@ -178,6 +178,58 @@ func TestScanOutOfWindowRendersTheDiagnostic(t *testing.T) {
 	if len(rec.Result().Cookies()) != 0 {
 		t.Error("no session may be minted for an out-of-window card")
 	}
+	if strings.Contains(body, "isn't in use yet") {
+		t.Error("an expired card must not render the not-yet copy")
+	}
+}
+
+// TestScanBeforeItsWindowSaysSoRatherThanOutOfDate covers the other side of
+// the window. A single OutOfWindow outcome served the expired copy for both,
+// so card 12 of a fresh booklet was told it was "out of date" and had
+// "stopped working" on a date that has not happened yet.
+func TestScanBeforeItsWindowSaysSoRatherThanOutOfDate(t *testing.T) {
+	st := testStore(t)
+	lib := addLibrary(t, st, "fairview")
+	// Card 12 of a booklet printed in August 2026: July 2027.
+	tok := seedToken(t, st, lib, 12,
+		boulevard.NewDate(2027, time.July, 1),
+		boulevard.NewDate(2027, time.July, 31), boulevard.TokenPending)
+	now := time.Date(2026, time.August, 14, 20, 25, 0, 0, chicago)
+
+	rec := scanAt(t, st, tok.Secret, now)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200 — this is diagnostic, not a failure", rec.Code)
+	}
+	body := rec.Body.String()
+	for _, want := range []string{
+		"This card isn't in use yet.",
+		"July 2027",
+		// Seven days of grace before the window, and the year, because
+		// "24 June" alone reads as a date that has already passed.
+		"It starts working on 24 June 2027",
+		"The Fairview Boulevard",
+	} {
+		if !strings.Contains(body, want) {
+			t.Errorf("body missing %q\n%s", want, body)
+		}
+	}
+	for _, forbidden := range []string{"out of date", "stopped working"} {
+		if strings.Contains(body, forbidden) {
+			t.Errorf("a card that has not started must not be described with %q", forbidden)
+		}
+	}
+	if len(rec.Result().Cookies()) != 0 {
+		t.Error("no session may be minted for a card that is not in use yet")
+	}
+
+	all, err := st.TokensForLibrary(context.Background(), lib.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if all[0].State != boulevard.TokenPending || all[0].FirstSeenAt != nil {
+		t.Errorf("a too-early scan must not activate or stamp the card: state=%q first_seen=%v",
+			all[0].State, all[0].FirstSeenAt)
+	}
 }
 
 func TestScanUnknownSecretNamesNothing(t *testing.T) {

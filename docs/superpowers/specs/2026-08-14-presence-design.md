@@ -101,9 +101,10 @@ A pure function — no I/O, no clock, no store:
 type Outcome int
 
 const (
-    Invalid     Outcome = iota // unknown secret, or revoked
-    OutOfWindow                // real token, outside its window plus grace
-    Granted                    // mint a session
+    Invalid Outcome = iota // unknown secret, or revoked
+    NotYet                 // real token, its window plus grace has not opened
+    Expired                // real token, past its window plus grace
+    Granted                // mint a session
 )
 
 func Validate(tok boulevard.Token, today boulevard.Date, grace int) Outcome
@@ -111,9 +112,11 @@ func Validate(tok boulevard.Token, today boulevard.Date, grace int) Outcome
 
 The store resolves the secret first. A miss returns `Invalid` without calling this. A token whose state is `revoked` returns `Invalid`. Everything else compares `today` against `[valid_from − grace, valid_until + grace]` inclusive, with **grace = 7 days** per §4.
 
+**The two sides of the window are separate outcomes.** An earlier draft of this spec had a single `OutOfWindow`, and §10.1 wrote only the expired copy — so a card scanned *before* its window was told it was "out of date" and that it "stopped working" on a date that has not happened. That case is reachable today: a neighbour scanning a spare card from the booklet, or a steward swapping a card more than seven days early, which `DESIGN.md` §4 anticipates under force-activate. Distinguishing them in `Validate` rather than in the handler keeps every comparison against the grace window in the one pure, boundary-tested place, and leaves the handler picking a page with no date arithmetic of its own.
+
 `today` is a parameter, not a clock read. This is what makes the grace boundaries testable on the exact day, and an off-by-one at a seven-day edge is precisely the class of bug that ships silently and surfaces a month later as "the card stopped working early".
 
-Cases that must have tests: the day before the window opens; the first day; the last day; the day after it closes; both grace edges from both directions; a revoked token inside its window; an unknown secret.
+Cases that must have tests: the day before the window opens; the first day; the last day; the day after it closes; both grace edges from both directions; a revoked token inside its window; an unknown secret; and that too-early and too-late do not collapse into one outcome.
 
 ---
 
@@ -207,7 +210,7 @@ All four are read **one-handed, on a phone, outdoors, in bad light, possibly in 
 
 Naming a wall-clock deadline beats "24 hours" because it is what a person actually needs in order to decide whether to write the note now or at the kitchen table.
 
-**OutOfWindow** — rendered at `/s/{token}`, deliberately **not** a failure page. §4 is explicit that this is diagnostic information the steward needs:
+**Expired** — rendered at `/s/{token}`, deliberately **not** a failure page. §4 is explicit that this is diagnostic information the steward needs:
 
 > **This card is out of date.**
 > The card in this box is **August 2026**. It stopped working on 7 September.
@@ -217,6 +220,17 @@ Naming a wall-clock deadline beats "24 hours" because it is what a person actual
 > *[Browse the shelf anyway]*
 
 Restating "August 2026" leaks nothing — it is printed on the card in the reader's hand. Naming *which* card comes next, and its position in the booklet, is deliberately omitted. The shelf link is present because here the token resolves and we genuinely know where to send them.
+
+**NotYet** — the mirror image, also 200 and also not a failure. A card whose window has not opened is a real card in someone's hand, and the expired copy is actively wrong about it:
+
+> **This card isn't in use yet.**
+> The card you scanned is **July 2027**. It starts working on 24 June 2027.
+> Until then, the card taped inside the box door is an earlier one.
+> Nothing is wrong with the shelf. You just can't leave or take with this card yet.
+>
+> *[Browse the shelf anyway]*
+
+The date named is `valid_from − grace`, the day the card actually begins working, mirroring the expired page's `valid_until + grace`. **A date in another calendar year carries its year**: card 12 of a booklet is nearly a year out, and "24 June" alone reads as a day that has already passed. Which card *is* currently in the door is still not named, for the same reason as above.
 
 **Invalid** — no library name, no branding, no shelf link, per §4.2:
 
@@ -248,7 +262,7 @@ The empty state gets a first honest pass here — "The shelf is empty. Nothing h
 
 **Store — `internal/store`.** Session create, lookup, expired-lookup-returns-nothing, delete. Forward-only activation: an older in-grace token does not displace the active one; a newer token does and expires its predecessor; `first_seen_at` is recorded in both cases and never overwritten once set.
 
-**Handlers — `internal/web`, via `httptest`.** The redirect target and cookie attributes on a granted scan; that `Secure` is set under TLS and absent without it; that an `OutOfWindow` response renders the library name; that an `Invalid` response renders **no** library name and no shelf link; that `/` redirects to the canonical slug route; that an unknown slug is a 404 rather than a redirect.
+**Handlers — `internal/web`, via `httptest`.** The redirect target and cookie attributes on a granted scan; that `Secure` is set under TLS and absent without it; that an `Expired` response renders the library name and the out-of-date copy; that a `NotYet` response renders the not-yet-in-use copy with a year-bearing start date and never the word "expired"; that an `Invalid` response renders **no** library name and no shelf link; that `/` redirects to the canonical slug route; that an unknown slug is a 404 rather than a redirect.
 
 Assertions target behaviour and structure, not markup — no golden HTML, because it would break on every wording change and teach the suite to be ignored.
 
@@ -260,6 +274,7 @@ Assertions target behaviour and structure, not markup — no golden HTML, becaus
 
 1. **§4 session mechanics** — "a signed random session id" becomes an opaque random session id. The server-side row is the source of truth; a signature would add key management for no defence the lookup does not already provide. Rationale in §4.1.
 2. **§4 validation step 5** — "On first valid scan, set `first_seen_at` and mark `active`" gains the forward-only qualifier: a token older than the current active one grants a session and records `first_seen_at`, but does not become active. Rationale in §7.
+3. **§4 validation step 4** — "outside the window but otherwise valid" splits in two. Past the window plus grace is the card-is-out-of-date page §4 describes. *Before* it is a distinct page saying the card is not in use yet and naming the day it starts, because the out-of-date copy is wrong about a card that has not started. Rationale in §6 and §10.1.
 
 ---
 
@@ -268,4 +283,4 @@ Assertions target behaviour and structure, not markup — no golden HTML, becaus
 - **Rate limits** (3 leaves, 3 takes per session) — Milestone 3, when leaves and takes exist.
 - **Steward overrides** (force-activate, extend, revoke) — Milestone 4. This milestone honors `revoked` but never sets it.
 - **The empty state's real design** — Milestone 5.
-- **A second year's booklet.** Carried forward from Milestone 0: after twelve periods elapse, every token is outside its window plus grace, so every scan renders `OutOfWindow` and the shelf becomes read-only until the steward generates a new booklet. That is correct behaviour, and §4 already says "rotation past month 12: the steward generates a new booklet" — but nothing yet tells them to, and `boulevard booklet` currently reprints the same expired cards. Milestone 4 owns the fix.
+- **A second year's booklet.** Carried forward from Milestone 0: after twelve periods elapse, every token is outside its window plus grace, so every scan renders `Expired` and the shelf becomes read-only until the steward generates a new booklet. That is correct behaviour, and §4 already says "rotation past month 12: the steward generates a new booklet" — but nothing yet tells them to, and `boulevard booklet` currently reprints the same expired cards. Milestone 4 owns the fix.

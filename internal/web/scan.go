@@ -30,8 +30,10 @@ func (s *Server) handleScan(w http.ResponseWriter, r *http.Request) {
 	switch tokens.Validate(tok, boulevard.DateFromTime(now), tokens.GraceDays) {
 	case tokens.Invalid:
 		s.renderInvalid(w)
-	case tokens.OutOfWindow:
-		s.renderOutOfWindow(w, r, tok, now)
+	case tokens.NotYet:
+		s.renderNotYet(w, r, tok, now)
+	case tokens.Expired:
+		s.renderExpired(w, r, tok, now)
 	case tokens.Granted:
 		s.grant(w, r, tok, now)
 	}
@@ -69,21 +71,50 @@ func (s *Server) libraryForToken(w http.ResponseWriter, r *http.Request, tok bou
 	return lib, true
 }
 
-func (s *Server) renderOutOfWindow(w http.ResponseWriter, r *http.Request, tok boulevard.Token, now time.Time) {
+// renderExpired serves the card-is-out-of-date diagnostic.
+//
+// 200, not an error status: DESIGN.md §4 is explicit that this is
+// information the steward needs, distinct from failure.
+func (s *Server) renderExpired(w http.ResponseWriter, r *http.Request, tok boulevard.Token, now time.Time) {
 	lib, ok := s.libraryForToken(w, r, tok)
 	if !ok {
 		return
 	}
-	// 200, not an error status: DESIGN.md §4 is explicit that this is
-	// diagnostic information the steward needs, distinct from failure.
 	s.render(w, http.StatusOK, "outdated.html", pageData{
 		Title:       "Card out of date",
 		LibraryName: lib.Name,
 		Location:    lib.LocationLabel,
-		CardLabel:   tok.ValidFrom.MonthName() + " " + strconv.Itoa(tok.ValidFrom.Year),
+		CardLabel:   cardLabel(tok),
 		StoppedOn:   humanDate(tok.ValidUntil.AddDays(tokens.GraceDays), boulevard.DateFromTime(now)),
 		ShelfURL:    "/b/" + lib.Slug + "/",
 	})
+}
+
+// renderNotYet serves the mirror image: a real card whose window has not
+// opened. It is its own page because the out-of-date copy is actively wrong
+// here — a card eleven months in the future has not "stopped working", and
+// naming a date that has yet to arrive as the day it stopped sends a
+// steward looking for a fault that does not exist. Reachable today by a
+// neighbour scanning a spare card, or by a steward swapping a card early.
+func (s *Server) renderNotYet(w http.ResponseWriter, r *http.Request, tok boulevard.Token, now time.Time) {
+	lib, ok := s.libraryForToken(w, r, tok)
+	if !ok {
+		return
+	}
+	s.render(w, http.StatusOK, "notyet.html", pageData{
+		Title:       "Card not in use yet",
+		LibraryName: lib.Name,
+		Location:    lib.LocationLabel,
+		CardLabel:   cardLabel(tok),
+		StartsOn:    humanDate(tok.ValidFrom.AddDays(-tokens.GraceDays), boulevard.DateFromTime(now)),
+		ShelfURL:    "/b/" + lib.Slug + "/",
+	})
+}
+
+// cardLabel names the card the way it is printed on the card itself —
+// "August 2026". Restating it leaks nothing: it is in the reader's hand.
+func cardLabel(tok boulevard.Token) string {
+	return tok.ValidFrom.MonthName() + " " + strconv.Itoa(tok.ValidFrom.Year)
 }
 
 func (s *Server) grant(w http.ResponseWriter, r *http.Request, tok boulevard.Token, now time.Time) {

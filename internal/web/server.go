@@ -27,7 +27,7 @@ type Server struct {
 // lets the last one parsed silently win, so every page renders whichever
 // body happened to parse last. Parsing one page at a time keeps each page's
 // "body" isolated to a set of exactly one.
-var pageTemplates = []string{"shelf.html", "about.html", "outdated.html", "invalid.html"}
+var pageTemplates = []string{"shelf.html", "about.html", "outdated.html", "notyet.html", "invalid.html"}
 
 // New builds a server. `now` is injected so handler tests can sit on an
 // exact date — the grace-window boundaries depend on it.
