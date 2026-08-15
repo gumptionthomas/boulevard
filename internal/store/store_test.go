@@ -358,3 +358,131 @@ func TestLibraryCount(t *testing.T) {
 		t.Errorf("count = %d, want 2", n)
 	}
 }
+
+func seededLibrary(t *testing.T, s *Store) (boulevard.Library, []boulevard.Token) {
+	t.Helper()
+	ctx := context.Background()
+	lib := makeLibrary(t)
+	if err := s.CreateLibrary(ctx, lib); err != nil {
+		t.Fatal(err)
+	}
+	toks := makeTokens(t, lib.ID)
+	if err := s.InsertTokens(ctx, lib.ID, toks); err != nil {
+		t.Fatal(err)
+	}
+	return lib, toks
+}
+
+func stateOf(t *testing.T, s *Store, lib boulevard.Library, periodIndex int) boulevard.Token {
+	t.Helper()
+	all, err := s.TokensForLibrary(context.Background(), lib.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, tok := range all {
+		if tok.PeriodIndex == periodIndex {
+			return tok
+		}
+	}
+	t.Fatalf("no token with period %d", periodIndex)
+	return boulevard.Token{}
+}
+
+func TestRecordScanActivatesAndStampsFirstSeen(t *testing.T) {
+	ctx, s := context.Background(), openTemp(t)
+	lib, toks := seededLibrary(t, s)
+	now := time.Date(2026, time.September, 3, 12, 0, 0, 0, time.UTC)
+
+	if err := s.RecordScan(ctx, lib.ID, toks[1], now); err != nil {
+		t.Fatalf("RecordScan: %v", err)
+	}
+	got := stateOf(t, s, lib, 2)
+	if got.State != boulevard.TokenActive {
+		t.Errorf("state = %q, want active", got.State)
+	}
+	if got.FirstSeenAt == nil {
+		t.Fatal("FirstSeenAt is nil, want it stamped")
+	}
+	if !got.FirstSeenAt.Equal(now) {
+		t.Errorf("FirstSeenAt = %v, want %v", got.FirstSeenAt, now)
+	}
+}
+
+func TestRecordScanAdvancesActiveAndExpiresPredecessor(t *testing.T) {
+	ctx, s := context.Background(), openTemp(t)
+	lib, toks := seededLibrary(t, s)
+	now := time.Date(2026, time.September, 3, 12, 0, 0, 0, time.UTC)
+
+	if err := s.RecordScan(ctx, lib.ID, toks[1], now); err != nil {
+		t.Fatal(err)
+	}
+	later := now.AddDate(0, 1, 0)
+	if err := s.RecordScan(ctx, lib.ID, toks[2], later); err != nil {
+		t.Fatal(err)
+	}
+
+	if got := stateOf(t, s, lib, 3); got.State != boulevard.TokenActive {
+		t.Errorf("period 3 state = %q, want active", got.State)
+	}
+	if got := stateOf(t, s, lib, 2); got.State != boulevard.TokenExpired {
+		t.Errorf("period 2 state = %q, want expired", got.State)
+	}
+}
+
+func TestRecordScanOfAnOlderTokenDoesNotRewindActive(t *testing.T) {
+	// 3 September, the September card is active. Someone finds the August
+	// card — never scanned, because the steward forgot to put it up — and
+	// scans it inside its grace window. It must be seen, but must not
+	// become the active card. (Spec §7.)
+	ctx, s := context.Background(), openTemp(t)
+	lib, toks := seededLibrary(t, s)
+	now := time.Date(2026, time.September, 3, 12, 0, 0, 0, time.UTC)
+
+	if err := s.RecordScan(ctx, lib.ID, toks[1], now); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.RecordScan(ctx, lib.ID, toks[0], now.Add(time.Hour)); err != nil {
+		t.Fatalf("scanning an older token must still succeed: %v", err)
+	}
+
+	if got := stateOf(t, s, lib, 2); got.State != boulevard.TokenActive {
+		t.Errorf("period 2 state = %q, want it still active", got.State)
+	}
+	old := stateOf(t, s, lib, 1)
+	if old.State == boulevard.TokenActive {
+		t.Error("period 1 became active; activation must only move forward")
+	}
+	if old.FirstSeenAt == nil {
+		t.Error("period 1 FirstSeenAt is nil; an older scan must still be recorded")
+	}
+}
+
+func TestRecordScanDoesNotOverwriteFirstSeen(t *testing.T) {
+	ctx, s := context.Background(), openTemp(t)
+	lib, toks := seededLibrary(t, s)
+	first := time.Date(2026, time.September, 3, 12, 0, 0, 0, time.UTC)
+	second := first.Add(48 * time.Hour)
+
+	if err := s.RecordScan(ctx, lib.ID, toks[1], first); err != nil {
+		t.Fatal(err)
+	}
+	seen := stateOf(t, s, lib, 2)
+	if err := s.RecordScan(ctx, lib.ID, seen, second); err != nil {
+		t.Fatal(err)
+	}
+	got := stateOf(t, s, lib, 2)
+	if !got.FirstSeenAt.Equal(first) {
+		t.Errorf("FirstSeenAt = %v, want the original %v — it records the FIRST scan", got.FirstSeenAt, first)
+	}
+}
+
+func TestRecordScanRejectsAForeignToken(t *testing.T) {
+	ctx, s := context.Background(), openTemp(t)
+	lib, toks := seededLibrary(t, s)
+	other := toks[0]
+	other.LibraryID = boulevard.LibraryID("SOMEONEELSE")
+	if err := s.RecordScan(ctx, lib.ID, other, time.Now()); err == nil {
+		t.Error("recording a token from another library succeeded, want an error")
+	}
+	_ = lib
+}

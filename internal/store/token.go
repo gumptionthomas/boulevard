@@ -127,3 +127,62 @@ func (s *Store) TokenBySecret(ctx context.Context, secret string) (boulevard.Tok
 	}
 	return tok, nil
 }
+
+// RecordScan stamps first_seen_at and advances the active card.
+//
+// Activation only ever moves forward (spec §7). An older card scanned
+// inside its grace window is still recorded as seen and still grants its
+// caller a session, but it must not displace a newer active card — a stray
+// card found in a drawer cannot be allowed to rewind the steward's sense of
+// which card is in the door.
+//
+// Both updates happen in one transaction: a stamped scan that failed to
+// advance the state would misreport the shelf.
+func (s *Store) RecordScan(ctx context.Context, id boulevard.LibraryID, tok boulevard.Token, now time.Time) error {
+	if tok.LibraryID != id {
+		return fmt.Errorf("token %s belongs to library %q, not %q", tok.ID, tok.LibraryID, id)
+	}
+
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("begin record scan: %w", err)
+	}
+	defer tx.Rollback()
+
+	if tok.FirstSeenAt == nil {
+		if _, err := tx.ExecContext(ctx,
+			`UPDATE tokens SET first_seen_at = ? WHERE id = ? AND first_seen_at IS NULL`,
+			now.UTC().Format(time.RFC3339), tok.ID); err != nil {
+			return fmt.Errorf("stamp first_seen_at on %s: %w", tok.ID, err)
+		}
+	}
+
+	var activePeriod int
+	err = tx.QueryRowContext(ctx,
+		`SELECT period_index FROM tokens WHERE library_id = ? AND state = ?`,
+		string(id), string(boulevard.TokenActive)).Scan(&activePeriod)
+	switch {
+	case errors.Is(err, sql.ErrNoRows):
+		activePeriod = 0 // nothing active yet; any token may take the slot
+	case err != nil:
+		return fmt.Errorf("find active token for %q: %w", id, err)
+	}
+
+	if tok.PeriodIndex > activePeriod {
+		if _, err := tx.ExecContext(ctx,
+			`UPDATE tokens SET state = ? WHERE library_id = ? AND state = ?`,
+			string(boulevard.TokenExpired), string(id), string(boulevard.TokenActive)); err != nil {
+			return fmt.Errorf("expire previous active token: %w", err)
+		}
+		if _, err := tx.ExecContext(ctx,
+			`UPDATE tokens SET state = ? WHERE id = ?`,
+			string(boulevard.TokenActive), tok.ID); err != nil {
+			return fmt.Errorf("activate token %s: %w", tok.ID, err)
+		}
+	}
+
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("commit record scan: %w", err)
+	}
+	return nil
+}
