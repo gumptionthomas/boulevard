@@ -61,6 +61,12 @@ var ErrNoCopiesLeft = errors.New("no copies left")
 // the shelf.
 var ErrShelfFull = errors.New("shelf is full")
 
+// ErrNotShed distinguishes "no such item" from "that item is not in the
+// shed", the way ErrNotPending does for the approval queue. A steward
+// needs to tell a mistyped handle from a second `reshelve` on the same
+// item.
+var ErrNotShed = errors.New("item is not in the shed")
+
 // FileMode is what the database and its sidecars are kept at.
 //
 // Token secrets are stored in plaintext (DESIGN.md §4), and a secret IS the
