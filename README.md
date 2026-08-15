@@ -39,7 +39,8 @@ To stamp version metadata:
 ## Documentation
 
 - `DESIGN.md` — the v1 specification and source of truth
-- `docs/booklet-acceptance.md` — the manual print-and-scan checklist
+- `docs/booklet-acceptance.md` — Milestone 0 manual print-and-scan checklist
+- `docs/presence-acceptance.md` — Milestone 1 manual acceptance checklist
 - `docs/superpowers/specs/` — per-milestone design documents
 
 ## License
