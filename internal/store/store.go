@@ -5,8 +5,8 @@
 // requires that the v1 single-library build never assume a singleton, so the
 // host layer is reachable later without a refactor.
 //
-// Three shapes of method follow from that, and only the third takes a
-// boulevard.LibraryID:
+// Four shapes of method follow from that, and only the third and fourth
+// take a boulevard.LibraryID:
 //
 //   - Resolution boundaries are handed an identifier and return what it
 //     names, including which library that is: LibraryBySlug, LibraryByID,
@@ -17,6 +17,18 @@
 //   - Everything else takes an explicit boulevard.LibraryID, and where it
 //     also takes something already carrying one — RecordScan — it rejects
 //     the pair if they disagree.
+//   - Session-scoped queries ask about one session's own takes rather than
+//     a shelf: TakenBySession and TakenToZeroBySession. TakenBySession
+//     takes no LibraryID, for the same reason a resolution boundary does
+//     not — a session id already names a single session, which already
+//     names its library, so a second identifier could only disagree with
+//     the first. TakenToZeroBySession takes both a LibraryID and a
+//     SessionID, because unlike TakenBySession it joins onto items and
+//     returns Item values, so the library scope items themselves require
+//     applies here too; the session id is still what keeps the result to
+//     that one session's own takes, never another session's, which is the
+//     hard requirement §5's "consumption is global, mutation is local"
+//     puts on this specific query.
 package store
 
 import (

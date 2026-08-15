@@ -348,10 +348,10 @@ func TestReshelveAndReleaseRefuseItemsNotInTheShed(t *testing.T) {
 	now := time.Date(2026, 8, 15, 20, 25, 0, 0, loc)
 	it := shelvedTestItemAt(t, st, lib.ID, "ONSHELF", now)
 
-	if err := st.ReshelveItem(context.Background(), lib.ID, it.ID, now); err == nil {
-		t.Error("reshelved an item that was already on the shelf")
+	if err := st.ReshelveItem(context.Background(), lib.ID, it.ID, now); !errors.Is(err, ErrNotShed) {
+		t.Errorf("reshelve error = %v, want ErrNotShed", err)
 	}
-	if err := st.ReleaseItem(context.Background(), lib.ID, it.ID); err == nil {
-		t.Error("released an item from the shelf rather than the shed")
+	if err := st.ReleaseItem(context.Background(), lib.ID, it.ID); !errors.Is(err, ErrNotShed) {
+		t.Errorf("release error = %v, want ErrNotShed", err)
 	}
 }

@@ -197,8 +197,9 @@ func (s *Store) UntakeItem(ctx context.Context, id boulevard.LibraryID,
 			full = true
 		} else {
 			if _, err := tx.ExecContext(ctx,
-				`UPDATE items SET state = 'shelved', shed_at = NULL, shed_reason = ''
-				  WHERE library_id = ? AND id = ?`, string(id), itemID); err != nil {
+				`UPDATE items SET state = 'shelved', shed_at = NULL, shed_reason = ?
+				  WHERE library_id = ? AND id = ?`,
+				string(boulevard.ShedNone), string(id), itemID); err != nil {
 				return fmt.Errorf("re-shelve %q: %w", itemID, err)
 			}
 		}
