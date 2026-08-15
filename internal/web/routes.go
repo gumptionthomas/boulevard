@@ -17,7 +17,4 @@ func (s *Server) Handler() http.Handler {
 	return mux
 }
 
-func (s *Server) handleRoot(w http.ResponseWriter, r *http.Request)  { http.NotFound(w, r) }
-func (s *Server) handleShelf(w http.ResponseWriter, r *http.Request) { http.NotFound(w, r) }
-func (s *Server) handleAbout(w http.ResponseWriter, r *http.Request) { http.NotFound(w, r) }
-func (s *Server) handleScan(w http.ResponseWriter, r *http.Request)  { http.NotFound(w, r) }
+func (s *Server) handleScan(w http.ResponseWriter, r *http.Request) { http.NotFound(w, r) }
