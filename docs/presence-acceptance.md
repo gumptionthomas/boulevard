@@ -49,11 +49,15 @@ printing. Card 3 is even later.
 To test forward-only activation without waiting a month, use a scratch database:
 
 1. Copy `boulevard.db` to `test-forward-only.db` (never run this on the live database).
-2. Open `test-forward-only.db` in SQLite and shift the token periods forward:
+2. Open `test-forward-only.db` in SQLite and shift the token periods backward:
    ```sql
-   UPDATE tokens SET valid_from = date(valid_from, '+30 days'),
-                     valid_until = date(valid_until, '+30 days');
+   UPDATE tokens
+   SET valid_from = date(valid_from, '-45 days'),
+       valid_until = date(valid_until, '-45 days')
+   WHERE period_index > 1;
    ```
+   This shifts only cards 2–12 backward 45 days, leaving card 1 in its original window
+   and bringing cards 2–3 into today's grace window while preserving their ordering.
 3. Run `boulevard serve --db test-forward-only.db --addr 0.0.0.0:8080`.
 4. Test the sequence:
    - Scan card 2. The banner should appear and show it is active.
