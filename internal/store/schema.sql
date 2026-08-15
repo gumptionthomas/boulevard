@@ -23,3 +23,14 @@ CREATE TABLE IF NOT EXISTS tokens (
     -- byte-for-byte redundant.
     UNIQUE (library_id, period_index)
 );
+
+CREATE TABLE IF NOT EXISTS sessions (
+    id          TEXT PRIMARY KEY,
+    library_id  TEXT NOT NULL REFERENCES libraries(id),
+    token_id    TEXT NOT NULL REFERENCES tokens(id),
+    created_at  TEXT NOT NULL,
+    expires_at  TEXT NOT NULL
+    -- No index beyond the primary key. Every lookup is by id, which
+    -- PRIMARY KEY already indexes, and expiry is checked on read rather
+    -- than swept, so nothing ever queries expires_at.
+);
