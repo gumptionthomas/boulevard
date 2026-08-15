@@ -30,7 +30,10 @@ CREATE TABLE IF NOT EXISTS sessions (
     token_id    TEXT NOT NULL REFERENCES tokens(id),
     created_at  TEXT NOT NULL,
     expires_at  TEXT NOT NULL
-    -- No index beyond the primary key. Every lookup is by id, which
-    -- PRIMARY KEY already indexes, and expiry is checked on read rather
-    -- than swept, so nothing ever queries expires_at.
+    -- No index beyond the primary key. Every lookup by id already has
+    -- PRIMARY KEY, and SweepExpiredSessions does query expires_at on every
+    -- shelf and item render — but this table stays small (Milestone 1's
+    -- argument for checking expiry on read rather than running a background
+    -- sweeper still holds), so that sweep is a single unindexed scan over a
+    -- handful of rows, not a reason to add one.
 );

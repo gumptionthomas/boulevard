@@ -163,6 +163,39 @@ func TestSweepExpiredItemsShedsOnlyPastTheBoundary(t *testing.T) {
 	}
 }
 
+// TestSweepExpiredItemsNeverExpiresAtMaxAgeZero is F9: SweepExpiredItems
+// guards max_age_days <= 0 as "never expire", not "shed everything". Getting
+// that backwards sheds an entire shelf, and nothing exercised this branch
+// before now.
+func TestSweepExpiredItemsNeverExpiresAtMaxAgeZero(t *testing.T) {
+	loc := chicago(t)
+	st := openTemp(t)
+	lib := seedLibrary(t, st)
+	now := time.Date(2026, 8, 15, 20, 25, 0, 0, loc)
+
+	if _, err := st.db.Exec(`UPDATE libraries SET max_age_days = 0 WHERE id = ?`,
+		string(lib.ID)); err != nil {
+		t.Fatalf("set max_age_days: %v", err)
+	}
+	old := shelvedTestItemAt(t, st, lib.ID, "OLD", now.AddDate(-1, 0, 0))
+
+	n, err := st.SweepExpiredItems(context.Background(), lib.ID, now)
+	if err != nil {
+		t.Fatalf("sweep: %v", err)
+	}
+	if n != 0 {
+		t.Fatalf("swept %d items, want 0 — max_age_days = 0 means never expire, not shed everything", n)
+	}
+
+	got, err := st.ItemByID(context.Background(), lib.ID, old.ID)
+	if err != nil {
+		t.Fatalf("read: %v", err)
+	}
+	if got.State != boulevard.ItemShelved {
+		t.Errorf("state = %s, want shelved — a year-old item was shed at max_age_days = 0", got.State)
+	}
+}
+
 func TestSweepExpiredItemsSkipsPinned(t *testing.T) {
 	loc := chicago(t)
 	st := openTemp(t)
