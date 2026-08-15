@@ -98,6 +98,97 @@ func (s *Store) IncrementViews(ctx context.Context, id boulevard.LibraryID, item
 	return nil
 }
 
+// ApproveItem shelves a pending item, evicting the oldest if the shelf is
+// already at capacity, and reports which item it shed.
+//
+// Both writes happen in one transaction. A shed item with no replacement
+// would silently shrink the shelf, and a shelved item that failed to evict
+// would grow it past its slots — a shelf that is not finite is not the
+// object DESIGN.md describes.
+//
+// §5's rule is "the oldest non-pinned item". Nothing is pinned in this
+// milestone, so it reduces to the oldest by shelved_at. FIFO is deliberately
+// dumb and deliberately not attention-weighted: letting popular items
+// survive longer would rebuild the ranking this project reacts against.
+func (s *Store) ApproveItem(ctx context.Context, lib boulevard.Library, itemID string, now time.Time) (string, error) {
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return "", fmt.Errorf("begin approve: %w", err)
+	}
+	defer tx.Rollback()
+
+	var state string
+	err = tx.QueryRowContext(ctx,
+		`SELECT state FROM items WHERE library_id = ? AND id = ?`,
+		string(lib.ID), itemID).Scan(&state)
+	if errors.Is(err, sql.ErrNoRows) {
+		return "", fmt.Errorf("item %q: %w", itemID, ErrNotFound)
+	}
+	if err != nil {
+		return "", fmt.Errorf("look up item %q: %w", itemID, err)
+	}
+	if boulevard.ItemState(state) != boulevard.ItemPending {
+		return "", fmt.Errorf("item %q is %s, not pending", itemID, state)
+	}
+
+	var shelved int
+	if err := tx.QueryRowContext(ctx,
+		`SELECT COUNT(*) FROM items WHERE library_id = ? AND state = 'shelved'`,
+		string(lib.ID)).Scan(&shelved); err != nil {
+		return "", fmt.Errorf("count the shelf: %w", err)
+	}
+
+	var evicted string
+	if shelved >= lib.Slots {
+		if err := tx.QueryRowContext(ctx,
+			`SELECT id FROM items
+			  WHERE library_id = ? AND state = 'shelved' AND pinned = 0
+			  ORDER BY shelved_at ASC, id ASC LIMIT 1`,
+			string(lib.ID)).Scan(&evicted); err != nil {
+			return "", fmt.Errorf("find the oldest shelved item: %w", err)
+		}
+		if _, err := tx.ExecContext(ctx,
+			`UPDATE items SET state = 'shed' WHERE library_id = ? AND id = ?`,
+			string(lib.ID), evicted); err != nil {
+			return "", fmt.Errorf("shed item %q: %w", evicted, err)
+		}
+	}
+
+	if _, err := tx.ExecContext(ctx,
+		`UPDATE items
+		    SET state = 'shelved', shelved_at = ?, copies_total = ?, copies_left = ?
+		  WHERE library_id = ? AND id = ?`,
+		now.UTC().Format(time.RFC3339), lib.DefaultCopies, lib.DefaultCopies,
+		string(lib.ID), itemID); err != nil {
+		return "", fmt.Errorf("shelve item %q: %w", itemID, err)
+	}
+
+	if err := tx.Commit(); err != nil {
+		return "", fmt.Errorf("commit approve: %w", err)
+	}
+	return evicted, nil
+}
+
+// RejectItem releases a pending item. §5 calls release a soft delete: the
+// row stays, so a steward who rejects the wrong thing has not destroyed it.
+func (s *Store) RejectItem(ctx context.Context, id boulevard.LibraryID, itemID string) error {
+	res, err := s.db.ExecContext(ctx,
+		`UPDATE items SET state = 'released'
+		  WHERE library_id = ? AND id = ? AND state = 'pending'`,
+		string(id), itemID)
+	if err != nil {
+		return fmt.Errorf("reject item %q: %w", itemID, err)
+	}
+	n, err := res.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("reject item %q: %w", itemID, err)
+	}
+	if n == 0 {
+		return fmt.Errorf("item %q is not pending: %w", itemID, ErrNotFound)
+	}
+	return nil
+}
+
 // scanner is satisfied by both *sql.Row and *sql.Rows, so one scan function
 // serves the single-item and list paths and they cannot drift apart.
 type scanner interface{ Scan(dest ...any) error }
