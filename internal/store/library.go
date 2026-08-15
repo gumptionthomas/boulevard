@@ -99,13 +99,3 @@ func (s *Store) LibraryByID(ctx context.Context, id boulevard.LibraryID) (boulev
 	lib.ID = boulevard.LibraryID(got)
 	return lib, nil
 }
-
-// LibraryCount reports how many libraries this database holds. GET / uses it
-// to decide whether a redirect to the sole shelf is meaningful.
-func (s *Store) LibraryCount(ctx context.Context) (int, error) {
-	var n int
-	if err := s.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM libraries`).Scan(&n); err != nil {
-		return 0, fmt.Errorf("count libraries: %w", err)
-	}
-	return n, nil
-}

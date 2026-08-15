@@ -26,6 +26,12 @@ func (s *Store) CreateSession(ctx context.Context, sess boulevard.Session) error
 // SessionByID loads a live session. An expired row is reported as ErrNotFound
 // rather than returned: expiry is checked on read, so there is no sweeper and
 // no window in which a stale session is honoured.
+//
+// **The caller must check the returned LibraryID itself.** A session id is
+// an identifier-resolution boundary, like a token secret: it takes no
+// LibraryID because it produces one. A session minted at one box grants
+// nothing at another, and this method does not know which box is being
+// asked about — web.liveSession is what enforces the match today.
 func (s *Store) SessionByID(ctx context.Context, id boulevard.SessionID, now time.Time) (boulevard.Session, error) {
 	var (
 		sess             boulevard.Session
@@ -56,6 +62,12 @@ func (s *Store) SessionByID(ctx context.Context, id boulevard.SessionID, now tim
 	return sess, nil
 }
 
+// DeleteSession removes one session by id.
+//
+// Like SessionByID it takes no LibraryID, and for the same reason: the id
+// resolves to its own library. **A caller acting on behalf of a particular
+// library must load the session first and check its LibraryID**, or it can
+// delete a session belonging to a neighbouring shelf.
 func (s *Store) DeleteSession(ctx context.Context, id boulevard.SessionID) error {
 	if _, err := s.db.ExecContext(ctx, `DELETE FROM sessions WHERE id = ?`, string(id)); err != nil {
 		return fmt.Errorf("delete session: %w", err)

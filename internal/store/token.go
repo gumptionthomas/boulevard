@@ -163,7 +163,12 @@ func (s *Store) RecordScan(ctx context.Context, id boulevard.LibraryID, tok boul
 		string(id), string(boulevard.TokenActive)).Scan(&activePeriod)
 	switch {
 	case errors.Is(err, sql.ErrNoRows):
-		activePeriod = 0 // nothing active yet; any token may take the slot
+		// Nothing active yet, so any token may take the slot. 0 works as
+		// the sentinel only because period_index is 1-based (DESIGN.md §4:
+		// "period_index INT -- 1..12"), which makes every real card strictly
+		// greater than it. A 0-based index would silently refuse to activate
+		// the first card of a booklet.
+		activePeriod = 0
 	case err != nil:
 		return fmt.Errorf("find active token for %q: %w", id, err)
 	}

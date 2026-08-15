@@ -381,17 +381,23 @@ func TestLibraryByID(t *testing.T) {
 	}
 }
 
-func TestLibraryCount(t *testing.T) {
+// TestLibraryCountsAreTheSlugListsLength replaces TestLibraryCount, which
+// covered a LibraryCount method removed along with its only caller: the slug
+// list answers both "how many" and "which one", so counting first was a
+// second query and a window in which the answer could change between them.
+// The counting behaviour itself is still asserted, through the method that
+// survived.
+func TestLibraryCountsAreTheSlugListsLength(t *testing.T) {
 	ctx, s := context.Background(), openTemp(t)
-	if n, err := s.LibraryCount(ctx); err != nil || n != 0 {
-		t.Fatalf("empty count = %d, %v; want 0, nil", n, err)
+	if got, err := s.LibrarySlugs(ctx); err != nil || len(got) != 0 {
+		t.Fatalf("empty database = %v, %v; want no slugs, nil", got, err)
 	}
 	a := makeLibrary(t)
 	if err := s.CreateLibrary(ctx, a); err != nil {
 		t.Fatal(err)
 	}
-	if n, _ := s.LibraryCount(ctx); n != 1 {
-		t.Errorf("count = %d, want 1", n)
+	if got, _ := s.LibrarySlugs(ctx); len(got) != 1 {
+		t.Errorf("count = %d, want 1", len(got))
 	}
 	b := makeLibrary(t)
 	b.Slug = "other"
@@ -400,8 +406,8 @@ func TestLibraryCount(t *testing.T) {
 	if err := s.CreateLibrary(ctx, b); err != nil {
 		t.Fatal(err)
 	}
-	if n, _ := s.LibraryCount(ctx); n != 2 {
-		t.Errorf("count = %d, want 2", n)
+	if got, _ := s.LibrarySlugs(ctx); len(got) != 2 {
+		t.Errorf("count = %d, want 2", len(got))
 	}
 }
 
