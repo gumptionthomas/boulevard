@@ -89,6 +89,8 @@ GPS is never a factor in authentication: spoofable, fails indoors, and forces a 
 | `pinned` | Steward only, max 3 |
 | `left_at` / `shelved_at` | |
 | `views` / `takes` | Separate counters. See §7. |
+| `shed_at` | Set when the item enters the shed. |
+| `shed_reason` | `evicted` \| `expired` \| `taken` — how it got there. See §5. |
 
 An item is `pending` from the moment it is left until the steward approves it (`shelved`) or rejects it (`released`). §5 requires an approval queue, and a queue is a state.
 
@@ -100,7 +102,11 @@ The `note` is mandatory and is the point. The media is the excuse.
 
 Ephemeral. Created by scanning the rotating code, expires 24h later, grants both `leave` and `take` for that library. No user record is ever created.
 
-**No item stores a session reference.** Sessions are never swept, so a `session_id` on an item would be a durable link between everything one person left in a 24-hour window at one box — a user record by another name. Per-session limits are counted with a counter on the session row instead, which counts without linking. The cost is that a revoked card's items cannot be retracted; that follows from presence being attestable rather than enforceable.
+Sessions are **swept**: an expired row is deleted, not merely ignored, on the read paths that can show an item. Expiry is still checked on read regardless — a session can be expired but not yet swept, and the read check is what makes that safe in the interval. The two are belt and braces, not alternatives.
+
+**A left item never stores a session reference.** A left item is public and permanent, so a link from it would point at durable data from the other side and survive the sweep — everything one person left, kept forever, a user record by another name. Leaves are counted with a bare counter on the session row instead, which counts without linking.
+
+**A take does link**, in its own row, and that row is deleted along with the session that made it. A take is a private act against a shelf, not a public contribution, and a link that cannot outlive the session's 24 hours is not a user record — it is what makes an undoable take possible at all. The cost that remains: a revoked card's *left* items still cannot be retracted, because leaves stay unlinked; that follows from presence being attestable rather than enforceable.
 
 ---
 
@@ -163,6 +169,8 @@ The mounted sign carries that line. **The monthly card says "Scan to leave or ta
 
 A valid scan sets an `HttpOnly`, `SameSite=Lax`, 24-hour cookie carrying an opaque random session id. A server-side session row records which token minted it, and that row is the source of truth — the id is not signed, because the lookup already rejects anything never issued and a signing key would add something to store, rotate and lose while defending against nothing. It would also break §10's promise that ejecting a library is a file copy.
 
+Sessions are swept lazily on the shelf and item read paths, immediately before either queries: an expired row is deleted outright rather than left to accumulate. Expiry is still checked on read as well — a session can be expired for a while before any traffic sweeps it, and the read check is what keeps that interval safe. The two are belt and braces, not alternatives; sweeping does not replace the check.
+
 **The 24-hour window is intentional.** Nobody wants to compose a thoughtful note standing outside a box in the rain. Scan on your walk, write at your kitchen table. The physical act stays mandatory; the typing does not.
 
 Presence is **attestable, not enforceable.** A scanned URL can be texted to a friend. Rotation plus rate limits bound the blast radius, and that is enough. Do not attempt to make it airtight.
@@ -189,6 +197,10 @@ Taking is a **write**. It changes shelf state, so it is gated exactly like leavi
 
 Copies exist so that no single tap destroys anything, and so that popular items cycle faster than ignored ones — which is exactly how a good LFL steward behaves with a book that keeps disappearing.
 
+Take is **one tap**: it records the take and opens the thing in the same motion, with no separate confirmation step. It is `POST` only — a `GET` take URL would be shareable, prefetchable, and, because it redirects to the item's own payload, an open redirect wearing the shelf's domain.
+
+Take is **undoable for as long as the session lasts**. Undo restores the copy and, if the take was what shed the item, returns it to the shelf. Undo and re-shelving both **refuse a full shelf rather than evicting** something else to make room — a stray tap, or a steward's misjudged re-shelve, must not cost a *different* item its place. The copy is still returned even when the shelf-side of the refusal fires, so the refused take stops counting against the session's limit either way.
+
 ### Expiry
 
 Any item older than `max_age_days` moves to the shed, regardless of shelf pressure.
@@ -198,6 +210,8 @@ Without this, a low-traffic box — which is most boxes — has items sitting fo
 ### The shed
 
 Evicted items are not public and not deleted. The shelf **sheds** them — passively, the way a tree sheds leaves, with no judgment implied. They sit in the steward's admin view, where the steward may **re-shelve** or **release** (soft delete). This mirrors what a real steward does with a book that has been sitting too long, and it keeps the decision human.
+
+Items record **how** they reached the shed — evicted off a full shelf, expired past `max_age_days`, or taken to zero copies. These read very differently: an expired item is stale, an item taken to zero is the opposite. The reason informs the steward's decision and nothing automatic — it is a label for a human to read, not an input to any ranking. Do not build automatic re-shelving of popular items on top of it.
 
 **Do not turn re-shelving into a job.** Every mechanic that generates steward labor pushes toward the steward-blog failure mode, because the person doing the most work starts feeling like the author.
 
