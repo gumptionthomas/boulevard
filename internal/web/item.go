@@ -60,9 +60,11 @@ func (s *Server) handleItem(w http.ResponseWriter, r *http.Request) {
 		log.Printf("view not recorded: %v", err)
 	}
 
-	itemBase := shelfURL(lib) + "i/"
+	itemBase := itemURL(lib, "")
 	view := itemView{Item: it, ItemBase: itemBase}
-	if sess, live := s.liveSession(r, lib.ID); live {
+	live := false
+	if sess, ok := s.liveSession(r, lib.ID); ok {
+		live = true
 		view.HasSession = true
 		// A take-state failure is not worth failing the page over either —
 		// same reasoning as the view count above. The control just falls
@@ -82,7 +84,11 @@ func (s *Server) handleItem(w http.ResponseWriter, r *http.Request) {
 		LibraryName: lib.Name,
 		ShelfURL:    shelfURL(lib),
 		ItemBase:    itemBase,
-		MaxTakes:    maxTakes,
-		Item:        view,
+		// HasSession here (not just on the view) is what item.html needs to
+		// show §6's explanation when there is no session: without it, a
+		// remote reader saw a greyed "Take" control and nothing telling
+		// them why (I-3).
+		HasSession: live,
+		Item:       view,
 	})
 }

@@ -237,3 +237,45 @@ func (s *Store) TakenBySession(ctx context.Context, sessionID boulevard.SessionI
 	}
 	return out, rows.Err()
 }
+
+// TakenToZeroBySession is the items in this library that this session took
+// the last copy of. TakeItem sheds an item the instant copies_left hits
+// zero, in the same transaction as the take row — which otherwise strands
+// "Put it back" nowhere the taker can reach: the item is not in
+// ShelvedItems (not shelved) and its own page 404s (§5, a shed item is not
+// public). The web layer lists these separately, below the live shelf, so
+// the one session that emptied the item still has a way back to its own
+// undo.
+//
+// Scoped by both library_id and session_id: joining session_takes onto
+// items, rather than filtering shed-taken items alone, is what keeps this
+// query from ever naming another session's takes — consumption is global,
+// mutation is local, and this is the one query that must not blur that.
+// With no session there is no session_id to join on, so the caller simply
+// does not call this.
+//
+// Ordered like ShelvedItems: most recently shed first, ties broken by id.
+func (s *Store) TakenToZeroBySession(ctx context.Context, id boulevard.LibraryID, sessionID boulevard.SessionID) ([]boulevard.Item, error) {
+	rows, err := s.db.QueryContext(ctx,
+		`SELECT `+itemColumns+` FROM items
+		   JOIN session_takes ON session_takes.item_id = items.id
+		  WHERE items.library_id = ?
+		    AND items.state = 'shed' AND items.shed_reason = ?
+		    AND session_takes.session_id = ?
+		  ORDER BY items.shed_at DESC, items.id DESC`,
+		string(id), string(boulevard.ShedTaken), string(sessionID))
+	if err != nil {
+		return nil, fmt.Errorf("list items taken to zero by session for %q: %w", id, err)
+	}
+	defer rows.Close()
+
+	var out []boulevard.Item
+	for rows.Next() {
+		it, err := scanItem(rows)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, it)
+	}
+	return out, rows.Err()
+}

@@ -48,6 +48,22 @@ func (s *Server) handleTake(w http.ResponseWriter, r *http.Request) {
 	err = s.store.TakeItem(r.Context(), lib.ID, sess.ID, itemID, s.now(), maxTakes)
 	switch {
 	case errors.Is(err, store.ErrNotFound):
+		// TakeItem's ErrNotFound covers "does not exist" and "no longer
+		// takeable" alike, including the genuine race this friendly copy
+		// exists for: another tap emptied this exact item between the
+		// ItemByID above and here. TakeItem sheds an item the instant it
+		// reaches zero, in the same transaction as the decrement (I-2), so
+		// that race lands here rather than as ErrNoCopiesLeft — without
+		// this check it fell through to a bare 404 for the one case the
+		// friendly copy was written for. Re-reading the item is the only
+		// way to tell that race apart from a truly unknown id, a pin, or an
+		// item shed for some other reason meanwhile; all of those still
+		// 404.
+		if now, nerr := s.store.ItemByID(r.Context(), lib.ID, itemID); nerr == nil &&
+			now.State == boulevard.ItemShed && now.ShedReason == boulevard.ShedTaken {
+			s.refuseTake(w, r, lib, http.StatusConflict, "Someone took the last one.")
+			return
+		}
 		http.NotFound(w, r)
 		return
 	case errors.Is(err, store.ErrLimitReached):
@@ -55,8 +71,12 @@ func (s *Server) handleTake(w http.ResponseWriter, r *http.Request) {
 			"You've taken three things with this scan. Scan the card again for more.")
 		return
 	case errors.Is(err, store.ErrNoCopiesLeft):
+		// Reachable only when default_copies is 0, where the item was never
+		// takeable in the first place — "someone took the last one" would
+		// be untrue there, so this copy has to hold for that case instead
+		// (I-2).
 		s.refuseTake(w, r, lib, http.StatusConflict,
-			"Someone took the last one.")
+			"There are no copies of this to take.")
 		return
 	case err != nil:
 		http.Error(w, "database unavailable", http.StatusInternalServerError)

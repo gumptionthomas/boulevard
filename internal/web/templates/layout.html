@@ -69,11 +69,22 @@ button[disabled] { opacity:.4; }
 .src { font-size:13px; color:#6b6659; margin:0; }
 .itemtext { font:400 15px/1.5 ui-serif, Georgia, serif; color:#3b3830;
             border-left:3px solid #ded9cc; padding-left:14px; margin:0 0 10px; }
+/* The take-to-zero band (I-1): distinct from the live shelf on purpose, so
+   it reads as "you took the last one" rather than a second shelf. A label
+   above it plus a muted rule and a left border on each card, not a new
+   background colour — this is one person's own three items at most, not a
+   section that needs to compete visually with the shelf itself. */
+.bandlabel { font:700 12.5px/1 ui-sans-serif, system-ui, sans-serif; text-transform:uppercase;
+             letter-spacing:.04em; color:#6b6659; margin:8px 0 4px; padding-top:18px;
+             border-top:1px solid #e4dfd2; }
+.item.band { padding-left:14px; border-left:3px solid #c9c3b2; border-bottom:none; }
 footer { max-width:34rem; margin:0 auto; padding:0 20px 30px; font-size:12.5px; color:#6b6659; }
 footer a { color:inherit; }
 @media (prefers-color-scheme: dark) {
   .item { border-color:#33302a; }
   .hint, footer { color:#a9a396; }
+  .bandlabel { color:#a9a396; border-color:#33302a; }
+  .item.band { border-left-color:#3a372c; }
 }
 </style>
 </head>

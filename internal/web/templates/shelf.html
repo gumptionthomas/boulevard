@@ -17,11 +17,41 @@
         {{if .Attribution}}<p class="dim">left by {{.Attribution}}</p>{{end}}
       </div>
     {{end}}
+  {{else if .TakenToZero}}
+    {{/* I-1: the live shelf really is empty, but this session emptied it
+         themself, and their own undo is right below. Rendering the
+         ordinary "nothing here yet" invitation here would be wrong — it
+         reads as though nothing exists, when the one thing that did exist
+         is one tap away from coming back. */}}
+    <div class="empty">
+      <h2>You took the last of what was here.</h2>
+      <p class="dim">The shelf refills as neighbours leave things. Yours is below if you'd rather put it back.</p>
+    </div>
   {{else}}
     <div class="empty">
       <h2>The shelf is empty.</h2>
       <p class="dim">Nothing here yet. That's an invitation.</p>
     </div>
+  {{end}}
+  {{if .TakenToZero}}
+    {{/* Visually distinct and separately labelled (I-1): this must read as
+         "you took the last one", never as a second shelf. Every entry here
+         has TakenByYou already true, so takecontrol renders only the
+         "Put it back" state — there is nothing left to take. Not linked to
+         its own item page: a shed item's page 404s (§5), even for the
+         session that emptied it. */}}
+    <h2 class="bandlabel">You took the last one</h2>
+    {{range .TakenToZero}}
+      <div class="item band" id="i-{{.ID}}">
+        <p class="note">{{.Note}}</p>
+        {{if eq .Type "link"}}
+          <p class="src"><b>{{.LinkDomain}}</b> · a link</p>
+        {{else}}
+          <p class="itemtext">{{.Payload}}</p>
+        {{end}}
+        {{template "takecontrol" .}}
+      </div>
+    {{end}}
   {{end}}
   {{if not .HasSession}}<p class="dim">Scan the code at the box to take or leave something.</p>{{end}}
   <a class="btn" href="{{.LeaveURL}}">Leave something</a>

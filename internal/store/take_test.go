@@ -376,6 +376,94 @@ func TestUntakeClampsRestoreToCopiesTotal(t *testing.T) {
 	}
 }
 
+// TestTakenToZeroBySessionListsTheSessionsOwnEmptiedItem covers I-1: the
+// undo for a take-to-zero must be reachable somewhere, and this query is
+// what the shelf lists it from.
+func TestTakenToZeroBySessionListsTheSessionsOwnEmptiedItem(t *testing.T) {
+	st, lib, sess, now := takeSetup(t)
+	it := shelvedTestItemAt(t, st, lib.ID, "ITEM1", now)
+	if _, err := st.db.Exec(
+		`UPDATE items SET copies_left = 1, copies_total = 1 WHERE id = ?`, it.ID); err != nil {
+		t.Fatalf("set copies: %v", err)
+	}
+	if err := st.TakeItem(context.Background(), lib.ID, sess, it.ID, now, 3); err != nil {
+		t.Fatalf("take: %v", err)
+	}
+
+	got, err := st.TakenToZeroBySession(context.Background(), lib.ID, sess)
+	if err != nil {
+		t.Fatalf("TakenToZeroBySession: %v", err)
+	}
+	if len(got) != 1 || got[0].ID != it.ID {
+		t.Fatalf("got %v, want [%s]", got, it.ID)
+	}
+	if got[0].State != boulevard.ItemShed || got[0].ShedReason != boulevard.ShedTaken {
+		t.Errorf("state = %s reason = %q, want shed/taken", got[0].State, got[0].ShedReason)
+	}
+}
+
+// TestTakenToZeroBySessionHidesAnotherSessionsEmptiedItem is the hard
+// requirement from the ruling: consumption is global, mutation is local.
+// The band this query feeds must never show another session's takes.
+func TestTakenToZeroBySessionHidesAnotherSessionsEmptiedItem(t *testing.T) {
+	st, lib, sess, now := takeSetup(t)
+	it := shelvedTestItemAt(t, st, lib.ID, "ITEM1", now)
+	if _, err := st.db.Exec(
+		`UPDATE items SET copies_left = 1, copies_total = 1 WHERE id = ?`, it.ID); err != nil {
+		t.Fatalf("set copies: %v", err)
+	}
+	if err := st.TakeItem(context.Background(), lib.ID, sess, it.ID, now, 3); err != nil {
+		t.Fatalf("take: %v", err)
+	}
+
+	toks, err := st.TokensForLibrary(context.Background(), lib.ID)
+	if err != nil || len(toks) == 0 {
+		t.Fatalf("tokens for library: %v", err)
+	}
+	other := boulevard.Session{
+		ID: "SESSION2", LibraryID: lib.ID, TokenID: toks[0].ID,
+		CreatedAt: now, ExpiresAt: now.Add(boulevard.SessionTTL),
+	}
+	if err := st.CreateSession(context.Background(), other); err != nil {
+		t.Fatalf("create session: %v", err)
+	}
+
+	got, err := st.TakenToZeroBySession(context.Background(), lib.ID, other.ID)
+	if err != nil {
+		t.Fatalf("TakenToZeroBySession: %v", err)
+	}
+	if len(got) != 0 {
+		t.Errorf("got %v, want none — a different session must not see this item", got)
+	}
+}
+
+// TestTakenToZeroBySessionExcludesOtherShedReasons: the band is for "you
+// took the last one", not "this item is gone, for any reason" — an item
+// shed by expiry or eviction must not appear even to a session that had
+// taken a copy of it earlier.
+func TestTakenToZeroBySessionExcludesOtherShedReasons(t *testing.T) {
+	st, lib, sess, now := takeSetup(t)
+	it := shelvedTestItemAt(t, st, lib.ID, "ITEM1", now)
+	if err := st.TakeItem(context.Background(), lib.ID, sess, it.ID, now, 3); err != nil {
+		t.Fatalf("take: %v", err)
+	}
+	// It expires (or is evicted) while the take row is still outstanding —
+	// the same setup TestUntakeDoesNotUnshedAnItemShedForAnotherReason uses.
+	if _, err := st.db.Exec(
+		`UPDATE items SET state = 'shed', shed_reason = 'expired' WHERE id = ?`,
+		it.ID); err != nil {
+		t.Fatalf("expire: %v", err)
+	}
+
+	got, err := st.TakenToZeroBySession(context.Background(), lib.ID, sess)
+	if err != nil {
+		t.Fatalf("TakenToZeroBySession: %v", err)
+	}
+	if len(got) != 0 {
+		t.Errorf("got %v, want none — this item was not taken to zero", got)
+	}
+}
+
 func TestDuplicateUntakeIsANoOp(t *testing.T) {
 	st, lib, sess, now := takeSetup(t)
 	it := shelvedTestItemAt(t, st, lib.ID, "ITEM1", now)

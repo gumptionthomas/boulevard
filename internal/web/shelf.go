@@ -38,13 +38,18 @@ type pageData struct {
 	Errors           boulevard.FieldErrors
 	ItemViews        []itemView
 	Item             itemView
+	// TakenToZero is this session's own band: items in this library it took
+	// the last copy of. TakeItem sheds an item the instant it reaches zero,
+	// so without this the undo for exactly that take — the one a stray tap
+	// costs the most — exists on no page the taker can reach (spec task-6
+	// I-1). Only ever populated for a live session, and only ever that
+	// session's own takes: consumption is global, mutation is local, and
+	// this is the one list that must not blur that. See renderShelf.
+	TakenToZero []itemView
 	// ItemBase is this library's item URL prefix ("/b/slug/i/"). The
 	// templates build every item, take and untake link off it rather than
 	// each calling itemURL itself.
 	ItemBase string
-	// MaxTakes is DESIGN.md §4's per-session limit, for the copy that
-	// explains why the control went inert.
-	MaxTakes int
 	// Notice carries a refusal's explanation back onto the shelf — the take
 	// and untake handlers always re-render the shelf on failure, whichever
 	// page the control was pressed on (see refuseTake in take.go).
@@ -151,8 +156,7 @@ func (s *Server) renderShelf(w http.ResponseWriter, r *http.Request, lib bouleva
 		Location:    lib.LocationLabel,
 		LeaveURL:    leaveURL(lib),
 		ShelfURL:    shelfURL(lib),
-		ItemBase:    shelfURL(lib) + "i/",
-		MaxTakes:    maxTakes,
+		ItemBase:    itemURL(lib, ""),
 		Notice:      msg,
 	}
 
@@ -183,6 +187,31 @@ func (s *Server) renderShelf(w http.ResponseWriter, r *http.Request, lib bouleva
 		}
 	}
 	data.ItemViews = views
+
+	// The session's own take-to-zero band (I-1). Scoped to sess.ID, fetched
+	// only when live: no session means no join key, so this is skipped
+	// entirely rather than ever risking a query that could answer for
+	// nobody-in-particular. Every entry here has a session_takes row for
+	// this session by construction (that is what the query joins on), so
+	// TakenByYou is unconditionally true — there is nothing left to take,
+	// only to put back.
+	if live {
+		shedTaken, err := s.store.TakenToZeroBySession(r.Context(), lib.ID, sess.ID)
+		if err != nil {
+			http.Error(w, "database unavailable", http.StatusInternalServerError)
+			return
+		}
+		band := make([]itemView, len(shedTaken))
+		for i, it := range shedTaken {
+			band[i] = itemView{
+				Item:       it,
+				TakenByYou: true,
+				HasSession: true,
+				ItemBase:   data.ItemBase,
+			}
+		}
+		data.TakenToZero = band
+	}
 
 	s.render(w, status, "shelf.html", data)
 }
