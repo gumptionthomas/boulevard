@@ -5,6 +5,7 @@ import (
 	"log"
 	"net/http"
 
+	"github.com/gumptionthomas/boulevard/internal/boulevard"
 	"github.com/gumptionthomas/boulevard/internal/store"
 )
 
@@ -28,6 +29,15 @@ func (s *Server) handleItem(w http.ResponseWriter, r *http.Request) {
 	}
 	if err != nil {
 		http.Error(w, "database unavailable", http.StatusInternalServerError)
+		return
+	}
+	// ItemByID is library-scoped only, on purpose — the CLI and future admin
+	// views need to load an item in any state. This handler is the public,
+	// shareable one, so it enforces §5's "not public" rule for anything not
+	// shelved: pending items skip the approval gate otherwise, and shed or
+	// released items stay reachable at a URL DESIGN.md says is not public.
+	if it.State != boulevard.ItemShelved {
+		http.NotFound(w, r)
 		return
 	}
 

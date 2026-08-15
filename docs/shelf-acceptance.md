@@ -47,23 +47,29 @@ a second, scratch library with a two-slot shelf.
 part of that call, so a freshly created library keeps the column's default
 of 12 regardless. Set it directly, the same way
 `docs/presence-acceptance.md` edits `tokens` on a scratch database for its
-date-manipulation checks:
+date-manipulation checks. Give it its own output file and its own port too:
+the "Set up" section above already wrote `boulevard-booklet.pdf` in this
+directory and, if you have followed the checklist in order, is still
+serving on `0.0.0.0:8080` — reusing either would fail before `small.db` is
+even created (`booklet` refuses to overwrite an existing PDF without
+`--force`, and two servers cannot bind the same port).
 
-    boulevard booklet --name "Small" --location "x" --base-url http://<lan-ip>:8080 --db small.db
+    boulevard booklet --name "Small" --location "x" --base-url http://<lan-ip>:8081 --db small.db --out small-booklet.pdf
 
-Then, with the server not yet running, open `small.db` in a SQLite client
-and run:
+Then, with no server yet started against `small.db`, open it in a SQLite
+client and run:
 
     UPDATE libraries SET slots = 2;
 
-Start the server against it:
+Start a second server against it, alongside the one already running from
+"Set up" — no need to stop that one, the port is different:
 
-    boulevard serve --db small.db --addr 0.0.0.0:8080
+    boulevard serve --db small.db --addr 0.0.0.0:8081
 
 `small.db` is its own library with its own booklet — scan one of *its*
-cards, not one from the first setup, to get a session for it. Leave three
-items through the form, then approve them one at a time, checking
-`boulevard queue --db small.db` between each:
+cards from `small-booklet.pdf` (port 8081), not one from the first setup,
+to get a session for it. Leave three items through the form, then approve
+them one at a time, checking `boulevard queue --db small.db` between each:
 
     boulevard approve --db small.db <id>
 
