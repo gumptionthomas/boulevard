@@ -279,8 +279,19 @@ func TestWALModeIsEnabled(t *testing.T) {
 	}
 }
 
+// TestTokenBySecretResolvesItsLibrary is the only test of the milestone's
+// load-bearing architectural claim: a secret is unique host-wide, so it
+// identifies its own library and nothing has to be told which shelf a scan
+// belongs to. Two libraries, each with a full booklet, so the lookup has to
+// pick the right one rather than the only one.
+//
+// It asserts State and Secret as well. They are adjacent TEXT columns, and
+// swapping them in the Scan argument list would leave every other assertion
+// green while making a revoked card undetectable — which is the difference
+// between a revoked card failing and a revoked card minting sessions.
 func TestTokenBySecretResolvesItsLibrary(t *testing.T) {
 	ctx, s := context.Background(), openTemp(t)
+
 	lib := makeLibrary(t)
 	if err := s.CreateLibrary(ctx, lib); err != nil {
 		t.Fatal(err)
@@ -290,21 +301,56 @@ func TestTokenBySecretResolvesItsLibrary(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	got, err := s.TokenBySecret(ctx, toks[3].Secret)
+	other := makeLibrary(t)
+	otherID, err := boulevard.NewLibraryID(rand.Reader)
 	if err != nil {
-		t.Fatalf("TokenBySecret: %v", err)
+		t.Fatal(err)
 	}
-	if got.ID != toks[3].ID {
-		t.Errorf("ID = %q, want %q", got.ID, toks[3].ID)
+	other.ID, other.Slug, other.Name = otherID, "whittier", "The Whittier Boulevard"
+	if err := s.CreateLibrary(ctx, other); err != nil {
+		t.Fatal(err)
 	}
-	if got.LibraryID != lib.ID {
-		t.Errorf("LibraryID = %q, want %q — the secret must identify its library", got.LibraryID, lib.ID)
+	otherToks := makeTokens(t, other.ID)
+	// A revoked card in the neighbouring booklet, so the state assertion
+	// below has something to be wrong about.
+	otherToks[3].State = boulevard.TokenRevoked
+	if err := s.InsertTokens(ctx, other.ID, otherToks); err != nil {
+		t.Fatal(err)
 	}
-	if got.PeriodIndex != toks[3].PeriodIndex {
-		t.Errorf("PeriodIndex = %d, want %d", got.PeriodIndex, toks[3].PeriodIndex)
-	}
-	if !got.ValidFrom.Equal(toks[3].ValidFrom) || !got.ValidUntil.Equal(toks[3].ValidUntil) {
-		t.Errorf("window = %v..%v, want %v..%v", got.ValidFrom, got.ValidUntil, toks[3].ValidFrom, toks[3].ValidUntil)
+
+	for _, tc := range []struct {
+		name string
+		lib  boulevard.Library
+		want boulevard.Token
+	}{
+		{"first library", lib, toks[3]},
+		{"second library", other, otherToks[3]},
+		{"second library, another period", other, otherToks[7]},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			got, err := s.TokenBySecret(ctx, tc.want.Secret)
+			if err != nil {
+				t.Fatalf("TokenBySecret: %v", err)
+			}
+			if got.ID != tc.want.ID {
+				t.Errorf("ID = %q, want %q", got.ID, tc.want.ID)
+			}
+			if got.LibraryID != tc.lib.ID {
+				t.Errorf("LibraryID = %q, want %q — the secret must identify its own library", got.LibraryID, tc.lib.ID)
+			}
+			if got.Secret != tc.want.Secret {
+				t.Errorf("Secret = %q, want %q", got.Secret, tc.want.Secret)
+			}
+			if got.State != tc.want.State {
+				t.Errorf("State = %q, want %q — a misread state is a revoked card that still works", got.State, tc.want.State)
+			}
+			if got.PeriodIndex != tc.want.PeriodIndex {
+				t.Errorf("PeriodIndex = %d, want %d", got.PeriodIndex, tc.want.PeriodIndex)
+			}
+			if !got.ValidFrom.Equal(tc.want.ValidFrom) || !got.ValidUntil.Equal(tc.want.ValidUntil) {
+				t.Errorf("window = %v..%v, want %v..%v", got.ValidFrom, got.ValidUntil, tc.want.ValidFrom, tc.want.ValidUntil)
+			}
+		})
 	}
 }
 
