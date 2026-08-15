@@ -7,12 +7,12 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 Milestones 0 through 3 are built: `boulevard booklet` prints the twelve-card booklet and the browse sign, `boulevard serve` runs the shelf, `boulevard queue` / `approve` / `reject` run the approval CLI, and `boulevard shed` / `reshelve` / `release` run the shed. Scanning a card grants a 24-hour session; a session can leave an item, which waits `pending` until a steward approves it onto the shelf or rejects it, and can take an item, which is undoable until the session ends. Items shed by eviction, expiry, or being taken to zero copies wait for a steward to re-shelve or release them. Steward admin (force-activate, extend, revoke, new booklet) is not built yet — that is Milestone 4.
 
 ```
-cmd/boulevard/     main.go booklet.go serve.go queue.go version.go
+cmd/boulevard/     main.go booklet.go serve.go queue.go shed.go version.go
 internal/booklet/  the PDF: cards, cover, QR, geometry, layout
 internal/boulevard/ domain types only, stdlib-only: Date, Library, Item, Token, Session, ids
-internal/store/    SQLite: schema.sql, migrations, library.go, item.go, token.go, session.go
+internal/store/    SQLite: schema.sql, migrate.go, library.go, item.go, token.go, session.go, take.go, shed.go, sweep.go
 internal/tokens/   pure: periods, secrets, Validate
-internal/web/      HTTP: server, routes, scan, shelf, leave, item, render, logging, templates/
+internal/web/      HTTP: server, routes, scan, shelf, leave, item, take, render, logging, templates/
 internal/version/  version, commit, repo URL for the AGPL footer
 ```
 
@@ -89,8 +89,9 @@ Each of these looks like an oversight and is not. The reasoning is in `DESIGN.md
 - **GPS/lat/lng is display-only and never an auth factor.**
 - **`--base-url` is required and verified before any PDF is written.** A wrong browse sign is the one permanent artifact.
 - **`note` on an item is required.** The note is the point; the media is the excuse.
-- **Sessions are swept, lazily, on the shelf and item read paths — not by a background goroutine.** Expiry is still checked on read regardless; sweeping and the read check are belt and braces, not alternatives. This bounds any session-scoped link to the session's 24 hours, which is what makes an undoable take possible.
+- **Sessions are swept, lazily, on the shelf and item read paths, plus once at `serve` startup — not by a background goroutine.** Expiry is still checked on read regardless; sweeping and the read check are belt and braces, not alternatives. This bounds any session-scoped link to the session's 24 hours **only under traffic**: the read-path sweep needs someone to load the shelf, and DESIGN.md itself says a quiet box is the common case, not the exception. The startup sweep is a cheap belt for that — it bounds the link on a restart even with zero traffic — but it is not a substitute for the qualifier: between restarts, on a box nobody visits, an expired session's take rows outlive 24 hours for as long as the session row does. What makes an undoable take possible is the sweep eventually running, not a hard 24-hour ceiling.
 - **A left item still stores no session reference, even though sessions are now swept.** The asymmetry with take is deliberate, not an oversight: a left item is public and permanent, so a link from it would point at durable data from the other side and survive the sweep — everything one person left, kept forever, the user record §1 forbids. A take is a private act against a shelf, so it links (in `session_takes`) and that row is deleted with the session, which keeps it well under 24 hours old and out of user-record territory. Per-session leave limits are still counted on a bare counter on the session row instead. This also means a revoked card's *left* items still cannot be retracted, which is the accepted cost.
+- **The request log never carries a remote address or a session id.** `logRequests` (`internal/web/logging.go`) logs the method, redacted path, status and duration — item ids included — and stops there on purpose. Add a remote address or a session id to that line and `POST /b/x/i/ABC/take` becomes, one log line at a time, exactly the durable "who took what" record `session_takes`'s 24-hour, swept-with-the-session design exists to avoid being — logs are not swept, do not expire, and are the first thing that ends up in a support thread or a backup. "Log the client IP so the steward can debug" is the natural-sounding request that would rebuild it silently; the answer is no, for the same reason a left item stores no session reference.
 - **Nothing fetches a submitted URL.** No titles, no thumbnails, no embeds, no oEmbed. An outbound request per stranger submission is an SSRF surface and a request amplifier, and a hostile URL could borrow a trustworthy title. The shelf shows a domain.
 - **Video is never hosted** — a YouTube/Vimeo/PeerTube URL is a `link` that renders an embed.
 - **Steward additions go through the same presence flow**, even though the steward owns the server.
