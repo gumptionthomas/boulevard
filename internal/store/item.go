@@ -184,7 +184,9 @@ func (s *Store) ApproveItem(ctx context.Context, id boulevard.LibraryID, itemID 
 			return "", fmt.Errorf("find the oldest shelved item: %w", err)
 		}
 		if _, err := tx.ExecContext(ctx,
-			`UPDATE items SET state = 'shed' WHERE library_id = ? AND id = ?`,
+			`UPDATE items SET state = 'shed', shed_at = ?, shed_reason = ?
+			  WHERE library_id = ? AND id = ?`,
+			now.UTC().Format(time.RFC3339), string(boulevard.ShedEvicted),
 			string(id), evicted); err != nil {
 			return "", fmt.Errorf("shed item %q: %w", evicted, err)
 		}
