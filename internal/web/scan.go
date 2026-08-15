@@ -47,10 +47,31 @@ func (s *Server) renderInvalid(w http.ResponseWriter) {
 	s.render(w, http.StatusNotFound, "invalid.html", pageData{Title: "Not valid"})
 }
 
-func (s *Server) renderOutOfWindow(w http.ResponseWriter, r *http.Request, tok boulevard.Token, now time.Time) {
+// libraryForToken loads the library a resolved token belongs to.
+//
+// A database failure here is a 500, not the invalid page: the token has
+// already resolved, so telling the visitor their card is bad sends the
+// steward hunting a token problem that does not exist. There is no
+// indistinguishability constraint left to preserve at this point, and a 500
+// leaks nothing. Only a genuinely missing row — a token pointing at a
+// library that is not there — renders as invalid, because that card cannot
+// be used no matter what.
+func (s *Server) libraryForToken(w http.ResponseWriter, r *http.Request, tok boulevard.Token) (boulevard.Library, bool) {
 	lib, err := s.store.LibraryByID(r.Context(), tok.LibraryID)
-	if err != nil {
+	if errors.Is(err, store.ErrNotFound) {
 		s.renderInvalid(w)
+		return boulevard.Library{}, false
+	}
+	if err != nil {
+		http.Error(w, "database unavailable", http.StatusInternalServerError)
+		return boulevard.Library{}, false
+	}
+	return lib, true
+}
+
+func (s *Server) renderOutOfWindow(w http.ResponseWriter, r *http.Request, tok boulevard.Token, now time.Time) {
+	lib, ok := s.libraryForToken(w, r, tok)
+	if !ok {
 		return
 	}
 	// 200, not an error status: DESIGN.md §4 is explicit that this is
@@ -66,9 +87,8 @@ func (s *Server) renderOutOfWindow(w http.ResponseWriter, r *http.Request, tok b
 }
 
 func (s *Server) grant(w http.ResponseWriter, r *http.Request, tok boulevard.Token, now time.Time) {
-	lib, err := s.store.LibraryByID(r.Context(), tok.LibraryID)
-	if err != nil {
-		s.renderInvalid(w)
+	lib, ok := s.libraryForToken(w, r, tok)
+	if !ok {
 		return
 	}
 	if err := s.store.RecordScan(r.Context(), lib.ID, tok, now); err != nil {
