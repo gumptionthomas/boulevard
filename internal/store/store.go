@@ -43,6 +43,24 @@ var ErrNotFound = errors.New("not found")
 // the CLI reports them as usage errors.
 var ErrNotPending = errors.New("not pending")
 
+// ErrLimitReached is the per-session rate limit (DESIGN.md §4: 3 leaves,
+// 3 takes). Presence is attestable, not enforceable — scanning again
+// mints a new session with fresh counters, and that is not a loophole to
+// close.
+var ErrLimitReached = errors.New("session limit reached")
+
+// ErrNoCopiesLeft guards a shelved item with no copies. An item that
+// reaches zero sheds in the same transaction, so this should be
+// unreachable — except for a steward who sets default_copies = 0, which
+// shelves items with nothing to take. Not dead code.
+var ErrNoCopiesLeft = errors.New("no copies left")
+
+// ErrShelfFull is undo and re-shelve meeting a full shelf. Neither
+// evicts to make room: a stray tap must not cost a different item its
+// place, and eviction is FIFO precisely so nobody's behaviour reorders
+// the shelf.
+var ErrShelfFull = errors.New("shelf is full")
+
 // FileMode is what the database and its sidecars are kept at.
 //
 // Token secrets are stored in plaintext (DESIGN.md §4), and a secret IS the
