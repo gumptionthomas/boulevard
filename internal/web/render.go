@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/gumptionthomas/boulevard/internal/boulevard"
+	"github.com/gumptionthomas/boulevard/internal/version"
 )
 
 // render executes a page template into a buffer first, and only writes the
@@ -19,6 +20,17 @@ import (
 // ExecuteTemplate can fail. Buffering first keeps the promise of a clean
 // 500 on failure true.
 func (s *Server) render(w http.ResponseWriter, status int, name string, data any) {
+	// The AGPL footer is stamped here rather than by each handler. DESIGN.md
+	// §2 asks for compliance by construction — a host who never thinks about
+	// licensing should be compliant anyway — and a handler that forgets a
+	// field is exactly the thinking it is meant to remove. Only about.html
+	// carried the link while eight pages existed.
+	if pd, ok := data.(pageData); ok {
+		pd.SourceURL = version.RepoURL
+		pd.BuildLine = "boulevard " + version.Version + " (" + version.Commit + ")"
+		data = pd
+	}
+
 	tmpl, ok := s.tmpl[name]
 	if !ok {
 		log.Printf("render: no template registered for %q", name)

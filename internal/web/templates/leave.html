@@ -1,6 +1,6 @@
 {{define "leave.html"}}{{template "layout" .}}{{end}}
 {{define "body"}}
-{{if .Deadline}}<div class="banner">You're at the box.<span>You can leave or take until {{.Deadline}}.</span></div>{{end}}
+{{if .HasSession}}<div class="banner">You're at the box.<span>You can leave or take until {{.Deadline}}.</span></div>{{end}}
 <main>
   <div class="site">{{.LibraryName}}</div>
   <h1>Leave something</h1>

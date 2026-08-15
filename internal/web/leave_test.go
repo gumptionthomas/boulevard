@@ -318,6 +318,29 @@ func TestLeaveSubmitRejectsABlankNoteAndKeepsWhatWasTyped(t *testing.T) {
 	}
 }
 
+// TestLeaveFormEscapesAClosingTextareaTag pins the one place where
+// correctness rests entirely on a stdlib guarantee. html/template knows it
+// is inside a <textarea> and escapes accordingly; text/template does not,
+// and a refactor toward it would silently turn a re-rendered note into
+// markup on the page of the next person who loads the form.
+func TestLeaveFormEscapesAClosingTextareaTag(t *testing.T) {
+	st := testStore(t)
+	lib := addLibrary(t, st, "fairview")
+	now := time.Date(2026, time.August, 15, 12, 0, 0, 0, time.UTC)
+
+	form := goodForm()
+	form.Set("note", "") // force the 422 re-render
+	form.Set("payload", "</textarea><script>alert(1)</script>")
+	body := postLeave(t, st, "fairview", form, now, &lib).Body.String()
+
+	if strings.Contains(body, "</textarea><script>") {
+		t.Errorf("a closing textarea tag survived into the page:\n%s", body)
+	}
+	if !strings.Contains(body, "&lt;/textarea&gt;") {
+		t.Errorf("the submitted text was not escaped back into the textarea:\n%s", body)
+	}
+}
+
 func TestLeaveConfirmationDoesNotImplyItIsLive(t *testing.T) {
 	st := testStore(t)
 	lib := addLibrary(t, st, "fairview")

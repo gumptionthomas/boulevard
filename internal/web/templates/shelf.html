@@ -1,6 +1,6 @@
 {{define "shelf.html"}}{{template "layout" .}}{{end}}
 {{define "body"}}
-{{if .Deadline}}<div class="banner">You're at the box.<span>You can leave or take until {{.Deadline}}.</span></div>{{end}}
+{{if .HasSession}}<div class="banner">You're at the box.<span>You can leave or take until {{.Deadline}}.</span></div>{{end}}
 <main>
   <div class="site">{{.LibraryName}}</div>
   {{if .Items}}
@@ -21,7 +21,7 @@
       <p class="dim">Nothing here yet. That's an invitation.</p>
     </div>
   {{end}}
-  {{if not .Deadline}}<p class="dim">Scan the code at the box to take or leave something.</p>{{end}}
+  {{if not .HasSession}}<p class="dim">Scan the code at the box to take or leave something.</p>{{end}}
   <a class="btn" href="{{.LeaveURL}}">Leave something</a>
 </main>
 {{end}}

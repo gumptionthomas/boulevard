@@ -6,7 +6,6 @@ import (
 
 	"github.com/gumptionthomas/boulevard/internal/boulevard"
 	"github.com/gumptionthomas/boulevard/internal/store"
-	"github.com/gumptionthomas/boulevard/internal/version"
 )
 
 // cookieName is the session cookie. Short, unmistakable, and namespaced so
@@ -17,15 +16,18 @@ type pageData struct {
 	Title       string
 	LibraryName string
 	Location    string
-	Deadline    string // empty when there is no live session
-	ShelfURL    string
-	CardLabel   string
-	StoppedOn   string
-	StartsOn    string
-	SourceURL   string
-	BuildLine   string
-	HasSession  bool
-	LeaveURL    string
+	// HasSession is the one predicate for presence. Deadline is display
+	// only: two fields set together but branched on separately is how a
+	// page ends up asking a different question than the one beside it.
+	Deadline   string
+	ShelfURL   string
+	CardLabel  string
+	StoppedOn  string
+	StartsOn   string
+	SourceURL  string
+	BuildLine  string
+	HasSession bool
+	LeaveURL   string
 	// AwaitingApproval is the confirmation page's one branch. Spec §6.3
 	// forbids a confirmation that implies publication — but with approval
 	// off, the item really is on the shelf already, and saying a steward
@@ -95,8 +97,6 @@ func (s *Server) handleAbout(w http.ResponseWriter, r *http.Request) {
 		Title:       "About " + lib.Name,
 		LibraryName: lib.Name,
 		Location:    lib.LocationLabel,
-		SourceURL:   version.RepoURL,
-		BuildLine:   "boulevard " + version.Version + " (" + version.Commit + ")",
 	})
 }
 
