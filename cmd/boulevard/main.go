@@ -29,6 +29,12 @@ func main() {
 		os.Exit(runApprove(os.Args[2:]))
 	case "reject":
 		os.Exit(runReject(os.Args[2:]))
+	case "shed":
+		os.Exit(runShed(os.Args[2:]))
+	case "reshelve":
+		os.Exit(runReshelve(os.Args[2:]))
+	case "release":
+		os.Exit(runRelease(os.Args[2:]))
 	case "version":
 		os.Exit(runVersion())
 	default:
@@ -47,6 +53,9 @@ Usage:
   boulevard queue   [--db PATH] [--slug SLUG]
   boulevard approve [--db PATH] [--slug SLUG] <id>
   boulevard reject  [--db PATH] [--slug SLUG] <id>
+  boulevard shed     [--db PATH] [--slug SLUG]
+  boulevard reshelve [--db PATH] [--slug SLUG] <id>
+  boulevard release  [--db PATH] [--slug SLUG] <id>
   boulevard version
 `)
 }
