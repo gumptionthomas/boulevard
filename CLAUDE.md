@@ -4,35 +4,55 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Repository state
 
-Greenfield. `DESIGN.md` is a locked v1 specification; no implementation exists yet (the repo contains only `README.md` and `DESIGN.md`). There is no `go.mod`, no build, no test suite.
+Milestones 0 and 1 are built: `boulevard booklet` prints the twelve-card booklet and the browse sign, and `boulevard serve` runs the first HTTP server, where scanning a card grants a 24-hour session. Seven packages, all tested. There are no items on the shelf yet — that is Milestone 2.
 
-**`DESIGN.md` is the source of truth.** Read the relevant section before implementing anything. It records not just decisions but the reasoning behind them, and several of its rules are counterintuitive enough that an agent will "improve" them by accident — see Invariants below.
+```
+cmd/boulevard/     main.go booklet.go serve.go version.go
+internal/booklet/  the PDF: cards, cover, QR, geometry, layout
+internal/boulevard/ domain types only, stdlib-only: Date, Library, Token, Session, ids
+internal/store/    SQLite: schema.sql, library.go, token.go, session.go
+internal/tokens/   pure: periods, secrets, Validate
+internal/web/      HTTP: server, routes, scan, shelf, render, logging, templates/
+internal/version/  version, commit, repo URL for the AGPL footer
+```
+
+**`DESIGN.md` is the source of truth.** Read the relevant section before implementing anything. It records not just decisions but the reasoning behind them, and several of its rules are counterintuitive enough that an agent will "improve" them by accident — see Invariants below. Per-milestone designs live in `docs/superpowers/specs/`, and where one deviates from `DESIGN.md` it says so and `DESIGN.md` is amended to match.
 
 ## Stack (decided, §2 of DESIGN.md)
 
 Go + SQLite, single static binary. AGPL-3.0, no CLA.
 
-Two rationales drive code style: the binary must stay a one-file download (adoption strategy), and this is a largely agent-written codebase, so the type system is the review budget. Prefer a distinct `LibraryID` type and a repository layer where every method takes one, over any ambient "current library" value.
+Two rationales drive code style: the binary must stay a one-file download (adoption strategy), and this is a largely agent-written codebase, so the type system is the review budget. Distinct `LibraryID`, `SessionID` and `Date` types over bare strings and `time.Time`, and an explicit identifier over any ambient "current library" value.
 
-SQLite operational requirements: WAL mode; `SetMaxOpenConns(1)` on the write pool (concurrent takes otherwise produce `SQLITE_BUSY`); a bounded LRU cache of per-library DB handles, never one per request.
+Dependencies have to earn their place against the single-binary promise. Routing is `net/http`'s own pattern matching, templates are `html/template` behind `go:embed` with the CSS inlined into the layout, and the SQLite driver is pure-Go (`modernc.org/sqlite`) because cgo would break the static build.
+
+SQLite operational requirements: WAL mode; `SetMaxOpenConns(1)` (concurrent writers otherwise produce `SQLITE_BUSY`), which also means every request serializes through one connection, so no handler may block; v2 adds a bounded LRU cache of per-library DB handles, never one per request.
 
 ## Commands
 
-None exist yet. Once `go.mod` is created, standard Go tooling applies (`go build ./...`, `go test ./...`, `go test -run TestName ./pkg`).
+```
+go build -o boulevard ./cmd/boulevard
+go test ./...            # every package; the suite is fast, run all of it
+go test -run TestName ./internal/web
+go vet ./... && gofmt -l .   # both must be clean before committing
+TZ=America/Chicago go test ./...   # see "injected clocks" below
+```
 
-The CLI surface the spec targets (§8) — build toward these signatures:
+The CLI as it stands (`DESIGN.md` §8; `init` is not built yet):
 
 ```
-boulevard booklet --name "..." --location "..." --base-url https://... --out booklet.pdf
-boulevard init --name "..." --location "..." --base-url https://...
+boulevard booklet --name "..." --location "..." --base-url https://... [--out booklet.pdf] [--db boulevard.db]
+boulevard serve [--db boulevard.db] [--addr :8080]
 boulevard version
 ```
 
+`serve` speaks plain HTTP and terminates no TLS. An `https://` base URL needs a reverse proxy in front of it, and the base URL is baked into twelve printed cards, so getting it wrong means reprinting.
+
 ## Build order (§12)
 
-Milestone 0 is `boulevard booklet` standalone — twelve time-gated tokens, base-URL verification, printable PDF — before any server, database, or item model. Done means printed, cut with scissors, and every card scans from a phone. Spend the milestone's budget on the PDF's design, not the token logic.
+0 booklet ✅ · 1 presence ✅ (scan → session cookie) · **2 shelf next** (items, leave form, approval queue) · 3 mechanics (copies, take, FIFO eviction, expiry, rate limits) · 4 steward admin (force-activate, extend, revoke, new booklet) · 5 polish · 6 (v2) host layer.
 
-Then: 1 presence (scan → session cookie) · 2 shelf (items, leave form, approval queue) · 3 mechanics (copies, take, FIFO eviction, expiry, shed) · 4 steward admin · 5 polish · 6 (v2) host layer.
+Milestone 1 honors a `revoked` token state it never sets, and enforces no rate limits — both wait for the milestones that own them. Milestone 2 adds items to a shelf page that already exists rather than building the page and the items together.
 
 ## Architecture
 
@@ -44,6 +64,8 @@ Then: 1 presence (scan → session cookie) · 2 shelf (items, leave form, approv
 
 **Multi-tenancy is architected in v1, shipped in v2 (§10).** v1 ships one library, but nothing may assume a singleton: `library_id` is a first-class key on every item, token, session, and setting; every query is library-scoped; canonical routes are `/b/:slug/...` (single-library mode may redirect `/`); token secrets are unique host-wide, not per library. v2 storage is one SQLite file per library plus a registry DB — which is what makes ejection a file copy rather than an export format.
 
+**What Milestone 1 settled, and why it looks odd.** The session cookie is an opaque 128-bit random id and is **not signed**: the server-side row is the source of truth, so a signature would add a key to store, rotate and lose while preventing no forgery the lookup does not already reject — and it would break §10's promise that ejecting a library is a file copy. Session expiry is checked on read; there is no sweeper for a table holding a handful of rows. Token activation moves **forward only**: an older card in its grace window still grants a session and still records `first_seen_at`, but must not rewind which card the steward thinks is in the door. HTML responses are `Cache-Control: no-store` plus `Vary: Cookie`, because the shelf's body differs entirely depending on the session cookie and this branch ships no TLS, so a reverse proxy or CDN is likely in front of it. Rationale for all four: `docs/superpowers/specs/2026-08-14-presence-design.md`.
+
 ## Invariants — do not "fix" these
 
 Each of these looks like an oversight and is not. The reasoning is in `DESIGN.md`.
@@ -51,8 +73,11 @@ Each of these looks like an oversight and is not. The reasoning is in `DESIGN.md
 - **No host-wide public feed** ("recent across all shelves"). Four lines of code, would be the most-visited page, and is the algorithmic feed entering through the service entrance. A map sends you to a place; a feed brings places to you.
 - **`views` drives nothing.** Views and takes are separate counters and both are displayed, but only takes affect shelf state. Attention-weighted eviction rebuilds the feed this project reacts against.
 - **Eviction is FIFO on the oldest non-pinned item.** Deliberately dumb, deliberately not popularity-aware.
-- **Token periods are explicit stored calendar dates, never TOTP-derived.** Clock drift, DST, and a steward swapping the card late must be inspectable and fixable, not silent auth failures. Validation carries a **7-day grace** on both ends; out-of-window-but-valid renders a distinct "card is out of date" page, not the generic failure page.
-- **Token secrets are stored in plaintext.** Deliberate: a lost booklet is far likelier than server compromise, and reprinting must always work. Do not hash them.
+- **Token periods are explicit stored calendar dates, never TOTP-derived.** Clock drift, DST, and a steward swapping the card late must be inspectable and fixable, not silent auth failures. Validation carries a **7-day grace** on both ends. Outside it, a valid card gets a diagnostic page rather than the generic failure page — and *which* one depends on the side: `Expired` says the card is out of date and names the day it stopped, `NotYet` says it is not in use yet and names the day it starts. Do not merge them back into one outcome; the copy is wrong for one of the two.
+- **Token secrets are stored in plaintext.** Deliberate: a lost booklet is far likelier than server compromise, and reprinting must always work. Do not hash them. It follows that a secret **is** the shelf's write credential: `boulevard.db` and the PDF are written `0600`, and nothing may log a scan URL's path, put a secret in an error message, or copy the database anywhere loose.
+- **Unknown and revoked secrets must be byte-identical responses.** Same status, same body — `TestScanRevokedIsIndistinguishableFromUnknown` compares them directly. Anything library-specific on that page confirms to whoever photographed a card that its secret was real. This forces the generic failure page to know nothing at all: no name, no location, no shelf link. Once a token has resolved and validated, the constraint is spent — from there, a database failure is a 500 and says so.
+- **No store method infers a current library.** Resolution boundaries (`LibraryBySlug`, `LibraryByID`, `TokenBySecret`, `SessionByID`, `DeleteSession`) are handed an identifier and return what it names, so they take no `LibraryID`. Host-scoped queries (`LibrarySlugs`) take none because the question is about the host. Everything else takes an explicit `boulevard.LibraryID`. Nothing anywhere falls back to "the only library".
+- **Clocks are injected, never read in place.** `web.New` takes a `now func() time.Time` and `tokens.Validate` takes `today` as a parameter, so grace boundaries can be tested on the exact day. Two related traps: the store round-trips timestamps through RFC3339 **in UTC**, so anything formatting one must convert into the display zone first (the banner is server-local, spec §10.2); and a test that pins UTC on both sides of a time comparison will pass while the real thing is a day out. Use a non-UTC clock in any test that formats a time.
 - **GPS/lat/lng is display-only and never an auth factor.**
 - **`--base-url` is required and verified before any PDF is written.** A wrong browse sign is the one permanent artifact.
 - **`note` on an item is required.** The note is the point; the media is the excuse.

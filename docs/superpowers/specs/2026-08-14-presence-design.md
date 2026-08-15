@@ -179,9 +179,9 @@ Expiry is checked on read: a session row whose `expires_at` has passed is treate
 internal/web/      server.go     — construction, dependency wiring
                    routes.go     — the mux and its patterns
                    scan.go       — GET /s/{token}
-                   shelf.go      — GET /b/{slug}/
-                   about.go      — GET /b/{slug}/about
-                   render.go     — template execution and error pages
+                   shelf.go      — GET /, /b/{slug}/, /b/{slug}/about
+                   render.go     — template execution, page copy helpers
+                   logging.go    — one log line per request, path redacted
                    templates/    — go:embed'd html/template files
 internal/store/    session.go    — new: session create, lookup, delete one
                    token.go      — extended: TokenBySecret, forward-only activation
@@ -189,7 +189,18 @@ internal/tokens/   validate.go   — new: the pure Outcome function
 cmd/boulevard/     serve.go      — new subcommand
 ```
 
-`internal/web` owns HTTP and nothing else. Validation stays pure in `internal/tokens`. Persistence stays in `internal/store`, still library-scoped — **every new store method takes a `boulevard.LibraryID`, and there is still no ambient current-library value anywhere.**
+The three page handlers share `libraryFromPath` and `pageData`, so they live together in `shelf.go` rather than in a file each; an earlier draft of this map put the about handler in its own `about.go`.
+
+`internal/web` owns HTTP and nothing else. Validation stays pure in `internal/tokens`. Persistence stays in `internal/store`.
+
+**The rule about library scoping, stated accurately.** An earlier draft of this section said "every new store method takes a `boulevard.LibraryID`", with an exception for "the two identifier-resolution boundaries". That is not true of the code and never was — four methods take no `LibraryID` today — which makes it useless as a review gate: a reviewer who applies it literally flags correct code, and one who has seen it be wrong stops applying it at all. The rule that actually holds, and the one worth enforcing:
+
+- **No store method infers a current library.** There is no ambient current-library value anywhere, and nothing falls back to "the only one".
+- **Resolution boundaries produce one.** `LibraryBySlug`, `LibraryByID`, `TokenBySecret` and `SessionByID` are handed an identifier and return what it names, including which library that is. They cannot take a `LibraryID` — resolving one is their job. `DeleteSession` is the same boundary in write form, and its doc comment says the caller must check the `LibraryID` first.
+- **Host-scoped queries take none.** `LibrarySlugs` asks a question about the host, not about a shelf. A `LibraryID` parameter would be meaningless on it.
+- **Everything else takes an explicit `boulevard.LibraryID`** — `InsertTokens`, `TokensForLibrary`, `RecordScan`, and every method the later milestones add for items.
+
+`RecordScan` shows why the last rule still earns its keep: it takes both a `LibraryID` and a token, and rejects the pair if the token belongs elsewhere.
 
 Routing uses the standard library's `net/http` pattern matching (Go 1.22+). No router dependency: the four routes do not justify one, and every dependency has to earn its place against the single-static-binary promise.
 
