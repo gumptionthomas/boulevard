@@ -94,13 +94,17 @@ An unknown slug is a 404 on all of these, never a fallback to the sole library �
 
 | Field | Rule |
 |---|---|
-| `note` | Required, non-blank after trimming. The one field that cannot be skipped. |
+| `note` | Required, non-blank after trimming, at most **1,000 runes**. The one field that cannot be skipped. |
 | `type` | `link` or `text`. Anything else is rejected. |
 | `payload` (link) | Must parse as `http`/`https` with a host. |
-| `payload` (text) | Non-blank, at most **4,000 characters**. |
-| `attribution` | Optional, at most 120 characters. |
+| `payload` (text) | Non-blank, at most **4,000 runes**. |
+| `attribution` | Optional, at most 120 runes. |
 
-The 4,000-character cap is not in `DESIGN.md`. It is a shelf, not a blog, and §11 puts "richer text" under Later; the number is a judgment call recorded here so it is not mistaken for a derived requirement.
+The 4,000-rune cap is not in `DESIGN.md`. It is a shelf, not a blog, and §11 puts "richer text" under Later; the number is a judgment call recorded here so it is not mistaken for a derived requirement. The 1,000-rune cap on `note` is the same kind of judgment call for the same reason: §3 makes the note required and names no bound, and an unbounded required field is a trivial way to fill a steward's disk.
+
+**Runes, not characters, and not bytes.** Every limit above counts runes — `utf8.RuneCountInString` — so a note in Greek, Cyrillic or Japanese gets the same allowance as one in English. `len()` would give a two-byte script half the room and a four-byte one a quarter. The tests spell this out with `strings.Repeat("é", …)` at each boundary, so a later milestone cannot "simplify" it toward bytes without going red.
+
+Sanitizing is **not** validation's job. A note is stored exactly as it was typed, control characters included; the display layer defuses them at each print boundary (`boulevard.Sanitize`). Rewriting a submission on the way in would make the stored value a lossy copy of what someone wrote, for the benefit of one of its readers.
 
 Validation is a pure function over submitted values, returning field-keyed errors so the form can re-render with what the person typed still in it. Losing a composed note to a validation error is the worst failure this form has.
 
@@ -109,6 +113,8 @@ Validation is a pure function over submitted values, returning field-keyed error
 The item is stored `pending` and the browser gets a confirmation page saying plainly that a steward looks at new things first, and that there is nothing further to do.
 
 It must not imply the item is live. Approval is default-on, and a confirmation that reads like publication would make the shelf look broken to the person who just used it.
+
+On a shelf whose steward has turned `approval_required` off (§9), the item is shelved in the same request and the confirmation says so instead. The rule underneath is that the page tells the truth about where the thing went; "a steward looks at it first" is as wrong on that shelf as "it's live" is on a moderated one.
 
 The confirmation deliberately does **not** say how many more things you may leave today. §4's limit of 3 is Milestone 3's to enforce, and printing a count the software is not keeping is a promise it cannot honour.
 
@@ -156,7 +162,11 @@ boulevard reject   <id-prefix>        release it
 
 An item's `id` is 128 bits of `crypto/rand` in Crockford base32, the same as every other identifier in this project — 26 characters, generated through the existing `boulevard.RandomBase32`.
 
-Nobody types 26 characters at a prompt, so the commands accept **any unique prefix**, case-insensitively, and `boulevard queue` prints the first four characters as the handle. The prefix is resolved against that library's pending items only. An ambiguous prefix is an error naming every candidate rather than a guess, and a prefix matching nothing is an error saying so — approving the wrong thing because a prefix silently resolved to it is the failure worth designing against.
+Nobody types 26 characters at a prompt, so the commands accept **any unique prefix** and `boulevard queue` prints a short handle for each item. The prefix is resolved against that library's pending items only. An ambiguous prefix is an error naming every candidate rather than a guess, and a prefix matching nothing is an error saying so — approving the wrong thing because a prefix silently resolved to it is the failure worth designing against.
+
+The handle is four characters, or the shortest length that is unique across everything the command listed, whichever is longer. Printing four unconditionally makes the ambiguity error unrecoverable: the steward is shown two 26-character ids and has no longer prefix to type for the one they meant.
+
+Matching folds case, and folds the letters Crockford's alphabet leaves out — `O` to `0`, `I` and `L` to `1`. Those letters are excluded (`DESIGN.md` §4) precisely so a human cannot mistype one identifier into another; refusing to fold them throws away the reason for the alphabet and answers "nothing waiting starts with that" for an item on the screen.
 
 **Approving** sets `copies_total = copies_left = default_copies`, `state = shelved`, `shelved_at = now`.
 
@@ -207,6 +217,10 @@ The index earns its place: the shelf query and the eviction query both filter by
 
 `max_age_days` is stored but unused until Milestone 3's expiry sweep. It is added now because it is a §3 library field and adding all five together is one migration rather than two.
 
+`approval_required` **is honored** from this milestone, and is the only one of the five that is. `DESIGN.md` §5 calls the queue steward-configurable and default on: with it on, a left item is `pending` until the CLI decides it; with it off, the leave handler shelves the item immediately by taking the same `ApproveItem` path, so `default_copies` and FIFO eviction apply either way. Anything else here that is stored but inert says so explicitly — a column that reads as a setting and does nothing is worse than one that is documented as waiting, because `docs/shelf-acceptance.md` teaches a steward to edit `libraries` by hand.
+
+`slots` and `default_copies` are read **inside** the approval transaction, from the row, never from a `Library` value a caller passes in. `CreateLibrary` writes none of these five columns — the migration defaults do — so a library struct that never came back from the database carries zeroes, and a zero `slots` would make every approval evict.
+
 ---
 
 ## 10. Package layout
@@ -229,7 +243,7 @@ Validation lives as a pure function in `internal/boulevard`, not in the handler 
 
 ## 11. Testing
 
-**Pure.** Validation: a blank note, a whitespace-only note, a link that is not http/https, a link with no host, text at 4,000 characters and at 4,001, an over-long attribution, an unknown type.
+**Pure.** Validation: a blank note, a whitespace-only note, a link that is not http/https, a link with no host, text at 4,000 runes and at 4,001, a note and an attribution at their limits and one rune past them, an unknown type.
 
 **Store.** Round-trip an item through every state. The eviction transaction at the `slots` boundary: approving into a full shelf sheds exactly the oldest by `shelved_at` and shelves the new one, both or neither. A `pending` item never appears in a shelf query. Two libraries' items never mix.
 
