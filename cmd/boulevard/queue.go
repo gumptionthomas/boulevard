@@ -8,6 +8,7 @@ import (
 	"os"
 	"strings"
 	"time"
+	"unicode"
 
 	"github.com/gumptionthomas/boulevard/internal/boulevard"
 	"github.com/gumptionthomas/boulevard/internal/store"
@@ -20,13 +21,13 @@ import (
 // wrong thing because a prefix silently resolved to it is the failure worth
 // designing against.
 func resolvePrefix(items []boulevard.Item, prefix string) (boulevard.Item, error) {
-	p := strings.ToUpper(strings.TrimSpace(prefix))
+	p := normalizeID(prefix)
 	if p == "" {
 		return boulevard.Item{}, fmt.Errorf("give the first few characters of an item's id")
 	}
 	var matches []boulevard.Item
 	for _, it := range items {
-		if strings.HasPrefix(strings.ToUpper(it.ID), p) {
+		if strings.HasPrefix(normalizeID(it.ID), p) {
 			matches = append(matches, it)
 		}
 	}
@@ -43,6 +44,71 @@ func resolvePrefix(items []boulevard.Item, prefix string) (boulevard.Item, error
 		return boulevard.Item{}, fmt.Errorf("%q matches %d items: %s",
 			prefix, len(matches), strings.Join(ids, ", "))
 	}
+}
+
+// normalizeID puts a typed prefix and a stored id into the same form.
+//
+// Crockford's alphabet leaves out I, L, O and U precisely so that a human
+// reading an identifier off a screen cannot mistype one into another
+// (DESIGN.md §4). Uppercasing alone throws that away: someone who reads 0 as
+// O gets "nothing waiting starts with..." for an item that is sitting right
+// there. Honoring the reason the alphabet was chosen means folding them the
+// way Crockford does — O to zero, I and L to one.
+//
+// Applied to the stored id too, though a generated id can never contain any
+// of them: both sides of a comparison must be in the same form, and relying
+// on one side being clean is the kind of assumption that stops holding.
+func normalizeID(s string) string {
+	return strings.Map(func(r rune) rune {
+		switch r {
+		case 'O', 'o':
+			return '0'
+		case 'I', 'i', 'L', 'l':
+			return '1'
+		}
+		return unicode.ToUpper(r)
+	}, strings.TrimSpace(s))
+}
+
+// handleWidth is how many leading characters of an id the queue prints.
+//
+// Four is enough for a shelf of twelve, but a collision at four characters
+// is the one case where printing four is actively harmful: resolvePrefix
+// correctly refuses to guess and names two 26-character ids, and the steward
+// has no way to type a longer prefix for the one they meant because the
+// queue never showed them one. So the handle is the shortest width that is
+// unique across everything being listed.
+func handleWidth(items []boulevard.Item) int {
+	const shortest = 4
+	longest := shortest
+	for _, it := range items {
+		if len(it.ID) > longest {
+			longest = len(it.ID)
+		}
+	}
+	for w := shortest; w < longest; w++ {
+		seen := make(map[string]bool, len(items))
+		clash := false
+		for _, it := range items {
+			h := idPrefix(it.ID, w)
+			if seen[h] {
+				clash = true
+				break
+			}
+			seen[h] = true
+		}
+		if !clash {
+			return w
+		}
+	}
+	return longest
+}
+
+func idPrefix(id string, w int) string {
+	if len(id) < w {
+		return id
+	}
+	return id[:w]
 }
 
 // queueLibrary opens the database and resolves the single library.
@@ -68,9 +134,18 @@ func queueLibrary(dbPath, slug string) (*store.Store, boulevard.Library, int) {
 			fmt.Fprintf(os.Stderr, "  x  %v\n", err)
 			return nil, boulevard.Library{}, exitIO
 		}
-		if len(slugs) != 1 {
+		// Zero is not "pick one of these": there is no --slug that would
+		// work, so pointing at the flag sends the steward looking for a name
+		// that does not exist anywhere.
+		if len(slugs) == 0 {
 			s.Close()
-			fmt.Fprintf(os.Stderr, "  x  this database holds %d libraries; name one with --slug\n", len(slugs))
+			fmt.Fprintf(os.Stderr, "  x  %s holds no libraries yet.\n     Run `boulevard booklet` to create one.\n", dbPath)
+			return nil, boulevard.Library{}, exitUsage
+		}
+		if len(slugs) > 1 {
+			s.Close()
+			fmt.Fprintf(os.Stderr, "  x  %s holds %d libraries; name one with --slug: %s\n",
+				dbPath, len(slugs), strings.Join(slugs, ", "))
 			return nil, boulevard.Library{}, exitUsage
 		}
 		slug = slugs[0]
@@ -108,8 +183,9 @@ func runQueue(args []string) int {
 	}
 
 	fmt.Printf("\n  %d waiting for %s\n\n", len(pending), lib.Name)
+	width := handleWidth(pending)
 	for _, it := range pending {
-		fmt.Printf("  [%s]  %s\n", strings.ToLower(it.ID[:4]), it.Type)
+		fmt.Printf("  [%s]  %s\n", strings.ToLower(idPrefix(it.ID, width)), it.Type)
 		fmt.Printf("          %s\n", displayLine(it.Note))
 		fmt.Printf("          %s\n", displayLine(it.Payload))
 		if it.Attribution != "" {

@@ -101,6 +101,63 @@ func TestFirstLineCountsRunesNotBytes(t *testing.T) {
 	}
 }
 
+func TestHandleWidthGrowsUntilItIsUnambiguous(t *testing.T) {
+	// The queue printed four characters unconditionally, so a collision at
+	// four left the steward reading "matches 2 items" with no way to type a
+	// longer prefix for the one they wanted.
+	for _, tc := range []struct {
+		name string
+		ids  []string
+		want int
+	}{
+		{name: "distinct at four", ids: []string{"A7F3ZZQQ", "B100QQZZ"}, want: 4},
+		{name: "collide at four", ids: []string{"A7F3ZZQQ", "A7F3YYQQ"}, want: 5},
+		{name: "collide further in", ids: []string{"A7F3ZZQ1", "A7F3ZZQ2"}, want: 8},
+		{name: "a single item never needs more", ids: []string{"A7F3ZZQQ"}, want: 4},
+		{name: "nothing waiting", ids: nil, want: 4},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := handleWidth(items(tc.ids...)); got != tc.want {
+				t.Errorf("handleWidth = %d, want %d", got, tc.want)
+			}
+		})
+	}
+}
+
+// TestQueueHandleIsAlwaysResolvable is the property that matters: whatever
+// the queue prints, typing it back must name exactly one item.
+func TestQueueHandleIsAlwaysResolvable(t *testing.T) {
+	pending := items("A7F3ZZQQ", "A7F3ZZQ2", "B100QQZZ")
+	w := handleWidth(pending)
+	for _, want := range pending {
+		got, err := resolvePrefix(pending, idPrefix(want.ID, w))
+		if err != nil {
+			t.Fatalf("the handle the queue printed for %s does not resolve: %v", want.ID, err)
+		}
+		if got.ID != want.ID {
+			t.Errorf("handle for %s resolved to %s", want.ID, got.ID)
+		}
+	}
+}
+
+// TestResolvePrefixFoldsCrockfordLookalikes honors the reason the alphabet
+// excludes I, L, O and U (DESIGN.md §4): a human cannot mistype one
+// identifier into another. Uppercasing alone threw that away — someone who
+// reads 0 as O was told nothing was waiting.
+func TestResolvePrefixFoldsCrockfordLookalikes(t *testing.T) {
+	pending := items("0123ZZ", "B100QQ")
+	for _, typed := range []string{"0123", "O123", "o123", "0i23", "0L23", "0l23", "OI23"} {
+		got, err := resolvePrefix(pending, typed)
+		if err != nil {
+			t.Errorf("resolvePrefix(%q): %v", typed, err)
+			continue
+		}
+		if got.ID != "0123ZZ" {
+			t.Errorf("resolvePrefix(%q) = %s, want 0123ZZ", typed, got.ID)
+		}
+	}
+}
+
 func TestQueueCommandsRejectAMissingDatabase(t *testing.T) {
 	for name, run := range map[string]func([]string) int{
 		"queue":   runQueue,
