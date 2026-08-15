@@ -53,7 +53,7 @@ func (s *Server) handleRoot(w http.ResponseWriter, r *http.Request) {
 		http.NotFound(w, r)
 		return
 	}
-	http.Redirect(w, r, "/b/"+slugs[0]+"/", http.StatusFound)
+	http.Redirect(w, r, shelfPath(slugs[0]), http.StatusFound)
 }
 
 func (s *Server) handleShelf(w http.ResponseWriter, r *http.Request) {
@@ -70,8 +70,8 @@ func (s *Server) handleShelf(w http.ResponseWriter, r *http.Request) {
 		Title:       lib.Name,
 		LibraryName: lib.Name,
 		Location:    lib.LocationLabel,
-		LeaveURL:    "/b/" + lib.Slug + "/leave",
-		ShelfURL:    "/b/" + lib.Slug + "/",
+		LeaveURL:    leaveURL(lib),
+		ShelfURL:    shelfURL(lib),
 		Items:       items,
 	}
 	if sess, live := s.liveSession(r, lib.ID); live {

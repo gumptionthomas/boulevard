@@ -1,6 +1,20 @@
 package web
 
-import "net/http"
+import (
+	"net/http"
+
+	"github.com/gumptionthomas/boulevard/internal/boulevard"
+)
+
+// The canonical routes always carry the library (DESIGN.md §10). Four
+// handlers were building them by hand in eight places, which is eight
+// chances for one of them to drift from the mux patterns below — and the
+// milestone that splits a library into its own database file is the one
+// that will have to change them all at once.
+func shelfPath(slug string) string          { return "/b/" + slug + "/" }
+func shelfURL(lib boulevard.Library) string { return shelfPath(lib.Slug) }
+func leaveURL(lib boulevard.Library) string { return shelfURL(lib) + "leave" }
+func leftURL(lib boulevard.Library) string  { return shelfURL(lib) + "left" }
 
 // Handler wires the public surface.
 //

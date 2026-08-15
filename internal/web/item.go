@@ -51,7 +51,7 @@ func (s *Server) handleItem(w http.ResponseWriter, r *http.Request) {
 	s.render(w, http.StatusOK, "item.html", pageData{
 		Title:       lib.Name,
 		LibraryName: lib.Name,
-		ShelfURL:    "/b/" + lib.Slug + "/",
+		ShelfURL:    shelfURL(lib),
 		Item:        it,
 	})
 }
