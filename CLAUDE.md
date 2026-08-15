@@ -4,15 +4,15 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Repository state
 
-Milestones 0 and 1 are built: `boulevard booklet` prints the twelve-card booklet and the browse sign, and `boulevard serve` runs the first HTTP server, where scanning a card grants a 24-hour session. Seven packages, all tested. There are no items on the shelf yet — that is Milestone 2.
+Milestones 0 through 2 are built: `boulevard booklet` prints the twelve-card booklet and the browse sign, `boulevard serve` runs the shelf, and `boulevard queue` / `approve` / `reject` run the approval CLI. Scanning a card grants a 24-hour session; a session can leave an item, which waits `pending` until a steward approves it onto the shelf or rejects it. Taking is not built yet — that is Milestone 3.
 
 ```
-cmd/boulevard/     main.go booklet.go serve.go version.go
+cmd/boulevard/     main.go booklet.go serve.go queue.go version.go
 internal/booklet/  the PDF: cards, cover, QR, geometry, layout
-internal/boulevard/ domain types only, stdlib-only: Date, Library, Token, Session, ids
-internal/store/    SQLite: schema.sql, library.go, token.go, session.go
+internal/boulevard/ domain types only, stdlib-only: Date, Library, Item, Token, Session, ids
+internal/store/    SQLite: schema.sql, migrations, library.go, item.go, token.go, session.go
 internal/tokens/   pure: periods, secrets, Validate
-internal/web/      HTTP: server, routes, scan, shelf, render, logging, templates/
+internal/web/      HTTP: server, routes, scan, shelf, leave, item, render, logging, templates/
 internal/version/  version, commit, repo URL for the AGPL footer
 ```
 
@@ -42,7 +42,10 @@ The CLI as it stands (`DESIGN.md` §8; `init` is not built yet):
 
 ```
 boulevard booklet --name "..." --location "..." --base-url https://... [--out booklet.pdf] [--db boulevard.db]
-boulevard serve [--db boulevard.db] [--addr :8080]
+boulevard serve   [--db boulevard.db] [--addr :8080]
+boulevard queue   [--db boulevard.db] [--slug SLUG]
+boulevard approve [--db boulevard.db] [--slug SLUG] <id>
+boulevard reject  [--db boulevard.db] [--slug SLUG] <id>
 boulevard version
 ```
 
@@ -50,9 +53,9 @@ boulevard version
 
 ## Build order (§12)
 
-0 booklet ✅ · 1 presence ✅ (scan → session cookie) · **2 shelf next** (items, leave form, approval queue) · 3 mechanics (copies, take, FIFO eviction, expiry, rate limits) · 4 steward admin (force-activate, extend, revoke, new booklet) · 5 polish · 6 (v2) host layer.
+0 booklet ✅ · 1 presence ✅ (scan → session cookie) · 2 shelf ✅ (items, leave form, approval queue) · **3 mechanics next** (copies, take, FIFO eviction, expiry, rate limits) · 4 steward admin (force-activate, extend, revoke, new booklet) · 5 polish · 6 (v2) host layer.
 
-Milestone 1 honors a `revoked` token state it never sets, and enforces no rate limits — both wait for the milestones that own them. Milestone 2 adds items to a shelf page that already exists rather than building the page and the items together.
+Milestone 1 honors a `revoked` token state it never sets, and enforces no rate limits — both wait for the milestones that own them. Milestone 2 adds items to a shelf page that already existed rather than building the page and the items together, and approval is a CLI (`queue`/`approve`/`reject`), not a web admin — that is Milestone 4.
 
 ## Architecture
 
@@ -81,6 +84,8 @@ Each of these looks like an oversight and is not. The reasoning is in `DESIGN.md
 - **GPS/lat/lng is display-only and never an auth factor.**
 - **`--base-url` is required and verified before any PDF is written.** A wrong browse sign is the one permanent artifact.
 - **`note` on an item is required.** The note is the point; the media is the excuse.
+- **No item stores a session reference.** Sessions are never swept, so such a column would be a durable link between everything one person left — the user record §1 forbids. Per-session limits are counted on the session row instead. This also means a revoked card's items cannot be retracted, which is the accepted cost.
+- **Nothing fetches a submitted URL.** No titles, no thumbnails, no embeds, no oEmbed. An outbound request per stranger submission is an SSRF surface and a request amplifier, and a hostile URL could borrow a trustworthy title. The shelf shows a domain.
 - **Video is never hosted** — a YouTube/Vimeo/PeerTube URL is a `link` that renders an embed.
 - **Steward additions go through the same presence flow**, even though the steward owns the server.
 - **`slots` never auto-scales with traffic.** Only the steward changes it.
