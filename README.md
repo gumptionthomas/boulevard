@@ -23,7 +23,23 @@ Milestone 1 — presence. The booklet generator plus the first HTTP server.
 and the page tells you so. The shelf itself holds no items yet — that is
 Milestone 2.
 
-Re-running `booklet` reprints the *same* cards rather than minting new ones.
+**`serve` speaks plain HTTP.** It terminates no TLS, so an `https://`
+`--base-url` needs a reverse proxy in front of it doing that. Get this right
+before printing: the twelve cards are permanent, and a card whose URL cannot
+connect is a card that has to be reprinted. To try it on a home network
+first, use the LAN address the phone can actually reach —
+`--base-url http://<lan-ip>:8080` with `serve --addr 0.0.0.0:8080`, as
+`docs/presence-acceptance.md` describes.
+
+Re-running `booklet` reprints the *same* cards rather than minting new ones —
+the library is looked up by its slug, which is derived from `--name`, so the
+run says which library it is about to touch before it touches it.
+
+Both `boulevard.db` and the PDF are written owner-readable only: the
+database holds every token secret in plaintext, and every card in the PDF
+carries one in its QR. A secret is the write credential for the shelf, so
+anyone who can read either file can leave and take without ever standing at
+the box.
 
 ## Building
 
