@@ -8,7 +8,8 @@
   {{else}}
     <p class="itemtext">{{.Item.Payload}}</p>
   {{end}}
-  <p class="dim">{{.Item.CopiesLeft}} copies{{if .Item.Attribution}} · left by {{.Item.Attribution}}{{end}}</p>
+  {{template "takecontrol" .Item}}
+  {{if .Item.Attribution}}<p class="dim">left by {{.Item.Attribution}}</p>{{end}}
   <a class="btn" href="{{.ShelfURL}}">Back to the shelf</a>
 </main>
 {{end}}

@@ -35,9 +35,52 @@ type pageData struct {
 	AwaitingApproval bool
 	Form             boulevard.Submission
 	Errors           boulevard.FieldErrors
-	Items            []boulevard.Item
-	Item             boulevard.Item
+	ItemViews        []itemView
+	Item             itemView
+	// ItemBase is this library's item URL prefix ("/b/slug/i/"). The
+	// templates build every item, take and untake link off it rather than
+	// each calling itemURL itself.
+	ItemBase string
+	// MaxTakes is DESIGN.md §4's per-session limit, for the copy that
+	// explains why the control went inert.
+	MaxTakes int
+	// Notice carries a refusal's explanation back onto the shelf — the take
+	// and untake handlers always re-render the shelf on failure, whichever
+	// page the control was pressed on (see refuseTake in take.go).
+	Notice string
 }
+
+// itemView is one item plus what this viewer may do with it. The template
+// must not work that out itself: the same shelf URL renders four different
+// controls depending on the cookie, and a branch spread across two
+// templates is how they drift apart.
+type itemView struct {
+	boulevard.Item
+	// TakenByYou is set when this session already took a copy, which turns
+	// the control into "Taken / Put it back".
+	TakenByYou bool
+	// AtLimit is set when this session has taken its three. The control
+	// goes inert with an explanation rather than disappearing — show the
+	// rule, do not hide the feature (§6).
+	AtLimit bool
+	// HasSession and ItemBase duplicate pageData fields onto the view
+	// itself. They have to: the take-control markup is factored into a
+	// shared `{{define "takecontrol"}}` block (shelf.html and item.html
+	// both call it), and `{{template "name" pipeline}}` resets `$` to
+	// pipeline inside the called template — a well-known text/template
+	// trap, and a second one after Milestone 1's same-named-block
+	// collision. `$.HasSession`/`$.ItemBase` would resolve against the
+	// itemView, not the page's pageData, and fail. Carrying both directly
+	// on the view sidesteps that instead of relying on a `$` that will not
+	// point where a reader expects once it is inside a called template.
+	HasSession bool
+	ItemBase   string
+}
+
+// Takeable reports whether the control renders at all. A pinned item shows
+// nothing: it has no copies and cannot be taken (§5), so there is no rule to
+// explain — a pin is furniture, not stock.
+func (v itemView) Takeable() bool { return !v.Pinned }
 
 // handleRoot redirects to the sole library, or 404s.
 //
@@ -68,24 +111,63 @@ func (s *Server) handleShelf(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
+	s.renderShelf(w, r, lib, http.StatusOK, "")
+}
+
+// renderShelf loads the shelf and draws it. It is the one place that
+// decides a take control's state, so both the shelf and (via handleItem) a
+// single item's page read the same answer rather than each working it out.
+//
+// msg, when non-empty, is a refusal's explanation carried onto the shelf —
+// handleTake and handleUntake re-render here on failure regardless of which
+// page the control was on.
+func (s *Server) renderShelf(w http.ResponseWriter, r *http.Request, lib boulevard.Library, status int, msg string) {
 	items, err := s.store.ShelvedItems(r.Context(), lib.ID)
 	if err != nil {
 		http.Error(w, "database unavailable", http.StatusInternalServerError)
 		return
 	}
+
 	data := pageData{
 		Title:       lib.Name,
 		LibraryName: lib.Name,
 		Location:    lib.LocationLabel,
 		LeaveURL:    leaveURL(lib),
 		ShelfURL:    shelfURL(lib),
-		Items:       items,
+		ItemBase:    shelfURL(lib) + "i/",
+		MaxTakes:    maxTakes,
+		Notice:      msg,
 	}
-	if sess, live := s.liveSession(r, lib.ID); live {
+
+	sess, live := s.liveSession(r, lib.ID)
+	if live {
 		data.HasSession = true
 		data.Deadline = humanDeadline(sess.ExpiresAt, s.now())
 	}
-	s.render(w, http.StatusOK, "shelf.html", data)
+
+	var taken map[string]bool
+	if live {
+		taken, err = s.store.TakenBySession(r.Context(), sess.ID)
+		if err != nil {
+			http.Error(w, "database unavailable", http.StatusInternalServerError)
+			return
+		}
+	}
+	atLimit := live && len(taken) >= maxTakes
+
+	views := make([]itemView, len(items))
+	for i, it := range items {
+		views[i] = itemView{
+			Item:       it,
+			TakenByYou: taken[it.ID],
+			AtLimit:    atLimit,
+			HasSession: live,
+			ItemBase:   data.ItemBase,
+		}
+	}
+	data.ItemViews = views
+
+	s.render(w, status, "shelf.html", data)
 }
 
 func (s *Server) handleAbout(w http.ResponseWriter, r *http.Request) {

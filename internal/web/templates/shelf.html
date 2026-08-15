@@ -3,16 +3,18 @@
 {{if .HasSession}}<div class="banner">You're at the box.<span>You can leave or take until {{.Deadline}}.</span></div>{{end}}
 <main>
   <div class="site">{{.LibraryName}}</div>
-  {{if .Items}}
-    {{range .Items}}
-      <div class="item">
-        <p class="note"><a href="{{$.ShelfURL}}i/{{.ID}}">{{.Note}}</a></p>
+  {{if .Notice}}<p class="err">{{.Notice}}</p>{{end}}
+  {{if .ItemViews}}
+    {{range .ItemViews}}
+      <div class="item" id="i-{{.ID}}">
+        <p class="note"><a href="{{$.ItemBase}}{{.ID}}">{{.Note}}</a></p>
         {{if eq .Type "link"}}
           <p class="src"><b>{{.LinkDomain}}</b> · a link</p>
         {{else}}
           <p class="itemtext">{{.Payload}}</p>
         {{end}}
-        <p class="dim"><span class="inert">Take</span> {{.CopiesLeft}} copies{{if .Attribution}} · left by {{.Attribution}}{{end}}</p>
+        {{template "takecontrol" .}}
+        {{if .Attribution}}<p class="dim">left by {{.Attribution}}</p>{{end}}
       </div>
     {{end}}
   {{else}}

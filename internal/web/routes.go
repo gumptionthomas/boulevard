@@ -16,6 +16,11 @@ func shelfURL(lib boulevard.Library) string { return shelfPath(lib.Slug) }
 func leaveURL(lib boulevard.Library) string { return shelfURL(lib) + "leave" }
 func leftURL(lib boulevard.Library) string  { return shelfURL(lib) + "left" }
 
+// itemURL is one item's page, or (with id == "") the base every item and
+// take/untake URL is built from — the templates need that base rather than
+// a per-item call, so it also lives on pageData as ItemBase.
+func itemURL(lib boulevard.Library, id string) string { return shelfURL(lib) + "i/" + id }
+
 // Handler wires the public surface.
 //
 // Two of these patterns are not design choices: Milestone 0 printed twelve
@@ -31,6 +36,12 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /b/{slug}/leave", s.handleLeaveForm)
 	mux.HandleFunc("POST /b/{slug}/leave", s.handleLeaveSubmit)
 	mux.HandleFunc("GET /b/{slug}/left", s.handleLeft)
+	// POST only, deliberately: a GET take URL would be shareable,
+	// prefetchable by a browser or link scanner, and — because the
+	// response redirects to a submitted URL — an open redirect wearing the
+	// shelf's domain. Do not add a GET form of either for convenience.
+	mux.HandleFunc("POST /b/{slug}/i/{id}/take", s.handleTake)
+	mux.HandleFunc("POST /b/{slug}/i/{id}/untake", s.handleUntake)
 	mux.HandleFunc("GET /s/{token}", s.handleScan)
 	return logRequests(mux)
 }

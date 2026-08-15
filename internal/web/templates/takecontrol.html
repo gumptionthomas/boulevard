@@ -1,0 +1,37 @@
+{{/*
+  takecontrol renders one item's take/put-it-back control. shelf.html and
+  item.html both call it, so the branch between the four states lives in
+  exactly one place — a branch spread across two templates is how they
+  drift apart.
+
+  It is called as {{template "takecontrol" .}} with an itemView as the
+  argument, and reads only fields off that argument — never `$`. A
+  {{template "name" pipeline}} call resets `$` to pipeline for the
+  duration of the call, so `$.ItemBase`/`$.HasSession` here would resolve
+  against the itemView already, not the page's pageData — and if it were
+  ever changed to reach past the itemView with `$`, it would silently read
+  whatever page happened to render last, the same way Milestone 1's
+  same-named "body" blocks did when every page template was parsed into
+  one shared set. itemView.HasSession and itemView.ItemBase exist so this
+  block never has to try.
+*/}}
+{{define "takecontrol"}}
+  {{if .Takeable}}
+    {{if not .HasSession}}
+      <p class="dim"><span class="inert">Take</span> {{.CopiesLeft}} copies</p>
+    {{else if .TakenByYou}}
+      <form method="post" action="{{.ItemBase}}{{.ID}}/untake">
+        <p class="dim"><span class="inert">Taken</span> {{.CopiesLeft}} copies</p>
+        <button class="linkish" type="submit">Put it back</button>
+      </form>
+    {{else if .AtLimit}}
+      <p class="dim"><span class="inert">Take</span> {{.CopiesLeft}} copies</p>
+      <p class="hint">You've taken three things with this scan.</p>
+    {{else}}
+      <form method="post" action="{{.ItemBase}}{{.ID}}/take">
+        <button type="submit">Take</button>
+        <span class="dim">{{.CopiesLeft}} copies</span>
+      </form>
+    {{end}}
+  {{end}}
+{{end}}

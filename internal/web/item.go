@@ -48,10 +48,29 @@ func (s *Server) handleItem(w http.ResponseWriter, r *http.Request) {
 		log.Printf("view not recorded: %v", err)
 	}
 
+	itemBase := shelfURL(lib) + "i/"
+	view := itemView{Item: it, ItemBase: itemBase}
+	if sess, live := s.liveSession(r, lib.ID); live {
+		view.HasSession = true
+		// A take-state failure is not worth failing the page over either —
+		// same reasoning as the view count above. The control just falls
+		// back to its normal "Take" state, which TakeItem's own idempotent
+		// duplicate-take guard keeps safe.
+		taken, err := s.store.TakenBySession(r.Context(), sess.ID)
+		if err != nil {
+			log.Printf("takes not loaded: %v", err)
+		} else {
+			view.TakenByYou = taken[it.ID]
+			view.AtLimit = len(taken) >= maxTakes
+		}
+	}
+
 	s.render(w, http.StatusOK, "item.html", pageData{
 		Title:       lib.Name,
 		LibraryName: lib.Name,
 		ShelfURL:    shelfURL(lib),
-		Item:        it,
+		ItemBase:    itemBase,
+		MaxTakes:    maxTakes,
+		Item:        view,
 	})
 }
