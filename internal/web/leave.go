@@ -95,6 +95,23 @@ func (s *Server) handleLeaveSubmit(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Every item is stored pending, and a shelf whose steward turned approval
+	// off is shelved immediately afterwards. DESIGN.md §5 makes the queue
+	// steward-configurable and default on, and `approval_required` is the one
+	// setting the acceptance checklist teaches a steward to edit by hand — a
+	// stored column nothing consulted would make that a silent no-op.
+	//
+	// Through ApproveItem rather than by storing `shelved` directly, so
+	// default_copies and FIFO eviction stay in the one place that knows how to
+	// keep the shelf finite. Which item it shed is not the leaver's business:
+	// the confirmation page says nothing about the shelf's other contents.
+	if !lib.ApprovalRequired {
+		if _, err := s.store.ApproveItem(r.Context(), lib.ID, item.ID, s.now()); err != nil {
+			http.Error(w, "could not store it", http.StatusInternalServerError)
+			return
+		}
+	}
+
 	// 303 so a reload cannot leave the same thing twice.
 	noStore(w)
 	http.Redirect(w, r, leftURL(lib), http.StatusSeeOther)
@@ -106,9 +123,10 @@ func (s *Server) handleLeft(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	s.render(w, http.StatusOK, "left.html", pageData{
-		Title:       "Left at the box",
-		LibraryName: lib.Name,
-		ShelfURL:    shelfURL(lib),
+		Title:            "Left at the box",
+		LibraryName:      lib.Name,
+		ShelfURL:         shelfURL(lib),
+		AwaitingApproval: lib.ApprovalRequired,
 	})
 }
 

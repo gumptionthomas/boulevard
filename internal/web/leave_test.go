@@ -204,6 +204,97 @@ func TestLeaveSubmitStoresAPendingItem(t *testing.T) {
 	}
 }
 
+// TestLeaveWithApprovalOffShelvesImmediately covers the one setting
+// DESIGN.md §5 calls steward-configurable. approval_required is stored,
+// defaults on, and until now nothing read it — so a steward following
+// docs/shelf-acceptance.md and editing `libraries` with a SQLite client got
+// a silent no-op.
+func TestLeaveWithApprovalOffShelvesImmediately(t *testing.T) {
+	ctx := context.Background()
+	st := testStore(t)
+	lib := addLibrary(t, st, "fairview")
+	now := time.Date(2026, time.August, 15, 12, 0, 0, 0, time.UTC)
+
+	stored, err := st.LibraryBySlug(ctx, lib.Slug)
+	if err != nil {
+		t.Fatal(err)
+	}
+	stored.ApprovalRequired = false
+	if err := st.UpdateLibrary(ctx, stored); err != nil {
+		t.Fatal(err)
+	}
+
+	if rec := postLeave(t, st, "fairview", goodForm(), now, &lib); rec.Code != http.StatusSeeOther {
+		t.Fatalf("status = %d, want 303", rec.Code)
+	}
+
+	shelf, err := st.ShelvedItems(ctx, lib.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(shelf) != 1 {
+		t.Fatalf("shelf holds %d items, want 1 — approval is off, so no CLI step should be needed", len(shelf))
+	}
+	if shelf[0].Note != "Reminded me of the alley cat." {
+		t.Errorf("Note = %q", shelf[0].Note)
+	}
+	// Through ApproveItem, so the copies mechanic is not bypassed.
+	if shelf[0].CopiesLeft != 3 || shelf[0].CopiesTotal != 3 {
+		t.Errorf("copies = %d/%d, want the library's default of 3", shelf[0].CopiesLeft, shelf[0].CopiesTotal)
+	}
+	if shelf[0].ShelvedAt == nil {
+		t.Error("ShelvedAt is nil on a shelved item")
+	}
+	pending, err := st.PendingItems(ctx, lib.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(pending) != 0 {
+		t.Errorf("queue holds %d items, want 0", len(pending))
+	}
+
+	// And the confirmation must not claim a steward is going to look at it.
+	body := get(t, New(st, func() time.Time { return now }).Handler(), "/b/fairview/left").Body.String()
+	if strings.Contains(body, "The steward looks at new things") {
+		t.Error("the confirmation says a steward looks first, but the item is already on the shelf")
+	}
+}
+
+// The default is the one that matters most: §5 says approval is on unless a
+// steward turns it off, and TestLeaveSubmitStoresAPendingItem above asserts
+// the same thing from the other side.
+func TestLeaveWithApprovalOnStaysPending(t *testing.T) {
+	ctx := context.Background()
+	st := testStore(t)
+	lib := addLibrary(t, st, "fairview")
+	now := time.Date(2026, time.August, 15, 12, 0, 0, 0, time.UTC)
+
+	stored, err := st.LibraryBySlug(ctx, lib.Slug)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !stored.ApprovalRequired {
+		t.Fatal("a fresh library has approval off; §5 says it defaults on")
+	}
+
+	postLeave(t, st, "fairview", goodForm(), now, &lib)
+
+	pending, err := st.PendingItems(ctx, lib.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(pending) != 1 {
+		t.Errorf("queue holds %d items, want 1", len(pending))
+	}
+	shelf, err := st.ShelvedItems(ctx, lib.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(shelf) != 0 {
+		t.Errorf("shelf holds %d items, want 0 — approval is on", len(shelf))
+	}
+}
+
 func TestLeaveSubmitRejectsABlankNoteAndKeepsWhatWasTyped(t *testing.T) {
 	st := testStore(t)
 	lib := addLibrary(t, st, "fairview")

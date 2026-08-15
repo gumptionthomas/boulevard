@@ -26,10 +26,15 @@ type pageData struct {
 	BuildLine   string
 	HasSession  bool
 	LeaveURL    string
-	Form        boulevard.Submission
-	Errors      boulevard.FieldErrors
-	Items       []boulevard.Item
-	Item        boulevard.Item
+	// AwaitingApproval is the confirmation page's one branch. Spec §6.3
+	// forbids a confirmation that implies publication — but with approval
+	// off, the item really is on the shelf already, and saying a steward
+	// looks first would be the same lie in the other direction.
+	AwaitingApproval bool
+	Form             boulevard.Submission
+	Errors           boulevard.FieldErrors
+	Items            []boulevard.Item
+	Item             boulevard.Item
 }
 
 // handleRoot redirects to the sole library, or 404s.
