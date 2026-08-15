@@ -15,7 +15,9 @@ localhost. Print the booklet and cut the cards.
 
 - [ ] Scanning the current month's card opens the shelf in the phone's browser.
 - [ ] The banner reads "You're at the box." with a wall-clock deadline.
-- [ ] The deadline is tomorrow's date at roughly the current time.
+- [ ] The deadline is tomorrow's date at roughly the current time, **in the
+      server host's timezone** (spec §10.2 — set the host's clock to the box's
+      zone; `TZ=... boulevard serve` is enough to check).
 - [ ] Closing and reopening the browser keeps the banner (the cookie persists).
 - [ ] Loading the shelf in a private window shows no banner, and shows
       "Scan the code at the box to take or leave something."
@@ -24,6 +26,10 @@ localhost. Print the booklet and cut the cards.
       that scan persists and makes the banner appear.)
 - [ ] Scanning a card whose month has passed by more than a week shows
       "This card is out of date." and does NOT set a cookie.
+- [ ] Scanning the *last* card of the booklet — its window is months away —
+      shows "This card isn't in use yet.", names the day it starts working
+      **with the year**, and does NOT set a cookie. It must not say the card
+      is out of date or that it stopped working.
 - [ ] Editing one character of a scanned URL shows "That code isn't valid."
       and names no library.
 - [ ] `/b/<wrong-slug>/` returns 404 rather than falling back to the shelf.
