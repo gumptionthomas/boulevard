@@ -12,7 +12,7 @@ import (
 
 const itemColumns = `id, library_id, type, payload, note, attribution,
                      copies_total, copies_left, state, pinned, views, takes,
-                     left_at, shelved_at`
+                     left_at, shelved_at, shed_at, shed_reason`
 
 func (s *Store) CreateItem(ctx context.Context, id boulevard.LibraryID, it boulevard.Item) error {
 	if it.LibraryID != id {
@@ -22,13 +22,18 @@ func (s *Store) CreateItem(ctx context.Context, id boulevard.LibraryID, it boule
 	if it.ShelvedAt != nil {
 		shelved = it.ShelvedAt.UTC().Format(time.RFC3339)
 	}
+	var shedAt any
+	if it.ShedAt != nil {
+		shedAt = it.ShedAt.UTC().Format(time.RFC3339)
+	}
 	_, err := s.db.ExecContext(ctx,
 		`INSERT INTO items (`+itemColumns+`, created_at)
-		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		it.ID, string(id), string(it.Type), it.Payload, it.Note, it.Attribution,
 		it.CopiesTotal, it.CopiesLeft, string(it.State), boolToInt(it.Pinned),
 		it.Views, it.Takes,
 		it.LeftAt.UTC().Format(time.RFC3339), shelved,
+		shedAt, string(it.ShedReason),
 		time.Now().UTC().Format(time.RFC3339))
 	if err != nil {
 		return fmt.Errorf("create item %s: %w", it.ID, err)
@@ -252,10 +257,12 @@ func scanItem(sc scanner) (boulevard.Item, error) {
 		pinned  int
 		left    string
 		shelved *string
+		shedAt  *string
+		reason  string
 	)
 	if err := sc.Scan(&it.ID, &libID, &typ, &it.Payload, &it.Note, &it.Attribution,
 		&it.CopiesTotal, &it.CopiesLeft, &state, &pinned, &it.Views, &it.Takes,
-		&left, &shelved); err != nil {
+		&left, &shelved, &shedAt, &reason); err != nil {
 		return boulevard.Item{}, err
 	}
 	it.LibraryID = boulevard.LibraryID(libID)
@@ -274,5 +281,13 @@ func scanItem(sc scanner) (boulevard.Item, error) {
 		}
 		it.ShelvedAt = &at
 	}
+	if shedAt != nil {
+		at, err := time.Parse(time.RFC3339, *shedAt)
+		if err != nil {
+			return boulevard.Item{}, fmt.Errorf("item %s shed_at: %w", it.ID, err)
+		}
+		it.ShedAt = &at
+	}
+	it.ShedReason = boulevard.ShedReason(reason)
 	return it, nil
 }

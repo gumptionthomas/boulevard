@@ -32,6 +32,38 @@ const (
 	ItemReleased ItemState = "released"
 )
 
+// ShedReason records how an item reached the shed. The shed now fills from
+// three different mechanisms and they read very differently to a steward
+// deciding whether to re-shelve: an expired item is stale, an item taken to
+// zero is the opposite.
+//
+// This is a label on a human decision, never an input to anything
+// automatic. Eviction stays FIFO and popularity-blind (§5), and `views`
+// still drives nothing (§7). Do not build automatic re-shelving on top of
+// this.
+type ShedReason string
+
+const (
+	ShedNone    ShedReason = ""
+	ShedEvicted ShedReason = "evicted" // pushed off a full shelf, FIFO
+	ShedExpired ShedReason = "expired" // older than max_age_days
+	ShedTaken   ShedReason = "taken"   // taken to zero copies
+)
+
+// Label is how the shed CLI names a reason.
+func (r ShedReason) Label() string {
+	switch r {
+	case ShedEvicted:
+		return "made room"
+	case ShedExpired:
+		return "expired"
+	case ShedTaken:
+		return "taken to zero"
+	default:
+		return "shed"
+	}
+}
+
 // Limits. The text and attribution caps come from the spec. The note cap is
 // a judgment call: §3 makes the note required but names no bound, and an
 // unbounded required field is a trivial way to fill a steward's disk.
@@ -44,10 +76,15 @@ const (
 
 // Item is one thing on the shelf.
 //
-// There is deliberately no session or author reference. Sessions are never
-// swept, so such a field would be a durable link between everything one
-// person left in a 24-hour window — the user record §1 forbids. Milestone 3
-// counts leaves on the session row instead, which counts without linking.
+// There is deliberately no session or author reference. A left item is
+// public and permanent, so a link from it to a session would point at
+// durable data from the other side and survive the session sweep — the user
+// record §1 forbids. Leaves are counted with a bare counter on the session
+// row, which counts without linking.
+//
+// A take is the other case and is linked, in `session_takes`: it is a
+// private act against a shelf, and the row is deleted when the session is
+// swept, so the link cannot outlive twenty-four hours.
 type Item struct {
 	ID          string
 	LibraryID   LibraryID
@@ -58,6 +95,8 @@ type Item struct {
 	CopiesTotal int
 	CopiesLeft  int
 	State       ItemState
+	ShedAt      *time.Time
+	ShedReason  ShedReason
 	Pinned      bool
 	Views       int
 	Takes       int
