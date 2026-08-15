@@ -185,6 +185,30 @@ func TestShelfIgnoresASessionForAnotherLibrary(t *testing.T) {
 	}
 }
 
+// TestPagesAreNotCacheable guards the one thing a shared cache in front of
+// this server could get catastrophically wrong: the shelf's body depends on
+// bl_session, so a stored copy hands one visitor's "You're at the box"
+// banner to a stranger, or hands the person standing at the box a cached
+// anonymous page.
+func TestPagesAreNotCacheable(t *testing.T) {
+	st := testStore(t)
+	lib := addLibrary(t, st, "fairview")
+	tok := september(t, st, lib, boulevard.TokenPending)
+	h := New(st, func() time.Time {
+		return time.Date(2026, time.September, 15, 16, 12, 0, 0, chicago)
+	}).Handler()
+
+	for _, path := range []string{"/b/fairview/", "/b/fairview/about", "/s/" + tok.Secret, "/s/NOSUCHSECRET"} {
+		rec := get(t, h, path)
+		if got := rec.Header().Get("Cache-Control"); got != "no-store" {
+			t.Errorf("%s Cache-Control = %q, want no-store", path, got)
+		}
+		if got := rec.Header().Get("Vary"); got != "Cookie" {
+			t.Errorf("%s Vary = %q, want Cookie", path, got)
+		}
+	}
+}
+
 func TestUnknownSlugIs404(t *testing.T) {
 	st := testStore(t)
 	addLibrary(t, st, "fairview")

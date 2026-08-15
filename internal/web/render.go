@@ -32,8 +32,26 @@ func (s *Server) render(w http.ResponseWriter, status int, name string, data any
 		return
 	}
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	noStore(w)
 	w.WriteHeader(status)
 	buf.WriteTo(w) //nolint:errcheck // best-effort write to an already-committed response
+}
+
+// noStore keeps a cookie-dependent page out of every cache.
+//
+// The shelf's body differs entirely depending on bl_session: with one it
+// carries "You're at the box" and a deadline, without one it carries the
+// scan-the-code explanation. This branch ships no TLS, so a steward putting
+// the box on the internet is pushed toward a reverse proxy or CDN — where a
+// shared cache holding either version and handing it to the wrong visitor is
+// the failure. `private` plus `Vary: Cookie` would be the narrower choice,
+// but it leaves correctness resting on every intermediary implementing Vary
+// properly, and buys nothing worth having: these pages are a few kilobytes
+// of inlined HTML with no items on them yet. `Vary: Cookie` is sent anyway,
+// so a cache that ignores no-store still has the varying header it needs.
+func noStore(w http.ResponseWriter) {
+	w.Header().Set("Cache-Control", "no-store")
+	w.Header().Set("Vary", "Cookie")
 }
 
 // humanDeadline renders a wall-clock deadline the way a person would say it.

@@ -141,6 +141,9 @@ func (s *Server) grant(w http.ResponseWriter, r *http.Request, tok boulevard.Tok
 		return
 	}
 
+	// The response carries a Set-Cookie minting a 24-hour credential. It
+	// must never be stored by anything on the way to the phone.
+	noStore(w)
 	http.SetCookie(w, &http.Cookie{
 		Name:     cookieName,
 		Value:    string(id),
