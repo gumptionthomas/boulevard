@@ -25,6 +25,8 @@
 - **Run the whole suite.** `go test ./...` is fast. Also run `TZ=America/Chicago go test -count=1 ./...` before the final commit of each task.
 - **Eviction is FIFO on the oldest non-pinned item.** Never popularity-aware. `views` drives nothing.
 - **Per-session limits: 3 leaves, 3 takes** (DESIGN.md §4).
+- **Never hold an open `*sql.Rows` while issuing another query.** `SetMaxOpenConns(1)` means one unclosed `Rows` owns the only connection and the next query blocks forever — a hang, not an error. Use `QueryRow` where one row is wanted (it closes itself), and `defer rows.Close()` immediately where `Query` is unavoidable. This bit Task 1's own test.
+- **The `store` package's test helpers are `openTemp(t) *Store` and `makeLibrary(t) boulevard.Library`** (both in `store_test.go`). `makeLibrary` builds a value; it does not insert — call `s.CreateLibrary(ctx, lib)` after it. Task 2 adds one shared helper, `seedLibrary(t, st)`, that does both; every later task in this package uses it rather than writing its own.
 
 ---
 
@@ -133,7 +135,7 @@ In `internal/store/migrate_test.go`:
 
 ```go
 func TestMigration4AddsShedColumnsAndSessionTakes(t *testing.T) {
-	st := newTestStore(t)
+	st := openTemp(t)
 
 	var version int
 	if err := st.db.QueryRow(
@@ -149,9 +151,15 @@ func TestMigration4AddsShedColumnsAndSessionTakes(t *testing.T) {
 		`SELECT shed_at, shed_reason FROM items LIMIT 1`,
 		`SELECT session_id, item_id, taken_at FROM session_takes LIMIT 1`,
 	} {
-		if _, err := st.db.Query(q); err != nil {
+		// Close every Rows before the next iteration. SetMaxOpenConns(1)
+		// means an unclosed Rows owns the only connection and the next
+		// query blocks forever — a hang, not a failure.
+		rows, err := st.db.Query(q)
+		if err != nil {
 			t.Errorf("%s: %v", q, err)
+			continue
 		}
+		rows.Close()
 	}
 }
 ```
@@ -308,7 +316,23 @@ git commit -m "feat: shed reasons, take rows, and the leaves counter"
 
 In `internal/store/sweep_test.go`. Note the clock: `America/Chicago`, never UTC.
 
+First, the two helpers every later task in this package reuses. `store_test.go` already has `openTemp(t) *Store` and `makeLibrary(t) boulevard.Library`; `makeLibrary` only builds the value, so nothing yet does both.
+
 ```go
+// seedLibrary builds a library and inserts it. Every test below needs a
+// library row to exist — makeLibrary alone returns a value that was never
+// written, and a Library that never came back from the database carries
+// zeroes in its settings columns, which is the trap ApproveItem's comment
+// already warns about.
+func seedLibrary(t *testing.T, st *Store) boulevard.Library {
+	t.Helper()
+	lib := makeLibrary(t)
+	if err := st.CreateLibrary(context.Background(), lib); err != nil {
+		t.Fatalf("create library: %v", err)
+	}
+	return lib
+}
+
 func chicago(t *testing.T) *time.Location {
 	t.Helper()
 	loc, err := time.LoadLocation("America/Chicago")
@@ -320,8 +344,8 @@ func chicago(t *testing.T) *time.Location {
 
 func TestSweepExpiredSessionsDeletesAndCascades(t *testing.T) {
 	loc := chicago(t)
-	st := newTestStore(t)
-	lib := insertTestLibrary(t, st)
+	st := openTemp(t)
+	lib := seedLibrary(t, st)
 	now := time.Date(2026, 8, 15, 20, 25, 0, 0, loc)
 
 	live := boulevard.Session{
@@ -377,8 +401,8 @@ func TestSweepExpiredSessionsDeletesAndCascades(t *testing.T) {
 
 func TestSweepExpiredItemsShedsOnlyPastTheBoundary(t *testing.T) {
 	loc := chicago(t)
-	st := newTestStore(t)
-	lib := insertTestLibrary(t, st) // max_age_days defaults to 90
+	st := openTemp(t)
+	lib := seedLibrary(t, st) // max_age_days defaults to 90
 	now := time.Date(2026, 8, 15, 20, 25, 0, 0, loc)
 
 	// Shelved exactly 90 days ago: at the boundary, not past it. Stays.
@@ -427,8 +451,8 @@ func TestSweepExpiredItemsShedsOnlyPastTheBoundary(t *testing.T) {
 
 func TestSweepExpiredItemsSkipsPinned(t *testing.T) {
 	loc := chicago(t)
-	st := newTestStore(t)
-	lib := insertTestLibrary(t, st)
+	st := openTemp(t)
+	lib := seedLibrary(t, st)
 	now := time.Date(2026, 8, 15, 20, 25, 0, 0, loc)
 
 	old := shelvedTestItemAt(t, st, lib.ID, "PINNED", now.AddDate(0, 0, -400))
@@ -610,8 +634,8 @@ In `internal/store/item_test.go`:
 ```go
 func TestApproveItemRecordsWhyItEvicted(t *testing.T) {
 	loc := chicago(t)
-	st := newTestStore(t)
-	lib := insertTestLibrary(t, st)
+	st := openTemp(t)
+	lib := seedLibrary(t, st)
 	now := time.Date(2026, 8, 15, 20, 25, 0, 0, loc)
 
 	if _, err := st.db.Exec(`UPDATE libraries SET slots = 1 WHERE id = ?`,
@@ -742,8 +766,8 @@ In `internal/store/take_test.go`. These are the milestone's most important tests
 func takeSetup(t *testing.T) (*Store, boulevard.Library, boulevard.SessionID, time.Time) {
 	t.Helper()
 	loc := chicago(t)
-	st := newTestStore(t)
-	lib := insertTestLibrary(t, st)
+	st := openTemp(t)
+	lib := seedLibrary(t, st)
 	now := time.Date(2026, 8, 15, 20, 25, 0, 0, loc)
 	sess := boulevard.Session{
 		ID: "SESSION1", LibraryID: lib.ID, TokenID: "T1",
@@ -1267,8 +1291,8 @@ In `internal/store/shed_test.go`:
 ```go
 func TestShedItemsNewestFirst(t *testing.T) {
 	loc := chicago(t)
-	st := newTestStore(t)
-	lib := insertTestLibrary(t, st)
+	st := openTemp(t)
+	lib := seedLibrary(t, st)
 	now := time.Date(2026, 8, 15, 20, 25, 0, 0, loc)
 
 	older := shelvedTestItemAt(t, st, lib.ID, "OLDER", now.Add(-2*time.Hour))
@@ -1298,8 +1322,8 @@ func TestShedItemsNewestFirst(t *testing.T) {
 
 func TestReshelveRestoresCopiesAndRestartsTheClock(t *testing.T) {
 	loc := chicago(t)
-	st := newTestStore(t)
-	lib := insertTestLibrary(t, st)
+	st := openTemp(t)
+	lib := seedLibrary(t, st)
 	now := time.Date(2026, 8, 15, 20, 25, 0, 0, loc)
 
 	it := shelvedTestItemAt(t, st, lib.ID, "SHED1", now.AddDate(0, 0, -200))
@@ -1336,8 +1360,8 @@ func TestReshelveRestoresCopiesAndRestartsTheClock(t *testing.T) {
 
 func TestReshelveRefusesAFullShelf(t *testing.T) {
 	loc := chicago(t)
-	st := newTestStore(t)
-	lib := insertTestLibrary(t, st)
+	st := openTemp(t)
+	lib := seedLibrary(t, st)
 	now := time.Date(2026, 8, 15, 20, 25, 0, 0, loc)
 
 	if _, err := st.db.Exec(`UPDATE libraries SET slots = 1 WHERE id = ?`,
@@ -1368,8 +1392,8 @@ func TestReshelveRefusesAFullShelf(t *testing.T) {
 
 func TestReleaseFromTheShed(t *testing.T) {
 	loc := chicago(t)
-	st := newTestStore(t)
-	lib := insertTestLibrary(t, st)
+	st := openTemp(t)
+	lib := seedLibrary(t, st)
 	now := time.Date(2026, 8, 15, 20, 25, 0, 0, loc)
 
 	it := shelvedTestItemAt(t, st, lib.ID, "SHED1", now)
@@ -1396,8 +1420,8 @@ func TestReleaseFromTheShed(t *testing.T) {
 
 func TestReshelveAndReleaseRefuseItemsNotInTheShed(t *testing.T) {
 	loc := chicago(t)
-	st := newTestStore(t)
-	lib := insertTestLibrary(t, st)
+	st := openTemp(t)
+	lib := seedLibrary(t, st)
 	now := time.Date(2026, 8, 15, 20, 25, 0, 0, loc)
 	it := shelvedTestItemAt(t, st, lib.ID, "ONSHELF", now)
 
@@ -1967,8 +1991,8 @@ In `internal/store/session_test.go`:
 ```go
 func TestLeavesCounterRoundTrips(t *testing.T) {
 	loc := chicago(t)
-	st := newTestStore(t)
-	lib := insertTestLibrary(t, st)
+	st := openTemp(t)
+	lib := seedLibrary(t, st)
 	now := time.Date(2026, 8, 15, 20, 25, 0, 0, loc)
 	sess := boulevard.Session{
 		ID: "S1", LibraryID: lib.ID, TokenID: "T1",
