@@ -29,7 +29,7 @@ type Server struct {
 // "body" isolated to a set of exactly one.
 var pageTemplates = []string{
 	"shelf.html", "about.html", "outdated.html", "notyet.html", "invalid.html",
-	"leave.html", "left.html",
+	"leave.html", "left.html", "item.html",
 }
 
 // New builds a server. `now` is injected so handler tests can sit on an

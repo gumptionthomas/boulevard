@@ -12,6 +12,7 @@ func (s *Server) Handler() http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /{$}", s.handleRoot)
 	mux.HandleFunc("GET /b/{slug}/{$}", s.handleShelf)
+	mux.HandleFunc("GET /b/{slug}/i/{id}", s.handleItem)
 	mux.HandleFunc("GET /b/{slug}/about", s.handleAbout)
 	mux.HandleFunc("GET /b/{slug}/leave", s.handleLeaveForm)
 	mux.HandleFunc("POST /b/{slug}/leave", s.handleLeaveSubmit)

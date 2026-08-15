@@ -3,11 +3,25 @@
 {{if .Deadline}}<div class="banner">You're at the box.<span>You can leave or take until {{.Deadline}}.</span></div>{{end}}
 <main>
   <div class="site">{{.LibraryName}}</div>
-  <div class="empty">
-    <h2>The shelf is empty.</h2>
-    <p class="dim">Nothing here yet. That's an invitation.</p>
-    {{if not .Deadline}}<p class="dim">Scan the code at the box to take or leave something.</p>{{end}}
-    <p class="inert">+ Leave something</p>
-  </div>
+  {{if .Items}}
+    {{range .Items}}
+      <div class="item">
+        <p class="note"><a href="{{$.ShelfURL}}i/{{.ID}}">{{.Note}}</a></p>
+        {{if eq .Type "link"}}
+          <p class="src"><b>{{.LinkDomain}}</b> · a link</p>
+        {{else}}
+          <p class="itemtext">{{.Payload}}</p>
+        {{end}}
+        <p class="dim"><span class="inert">Take</span> {{.CopiesLeft}} copies{{if .Attribution}} · left by {{.Attribution}}{{end}}</p>
+      </div>
+    {{end}}
+  {{else}}
+    <div class="empty">
+      <h2>The shelf is empty.</h2>
+      <p class="dim">Nothing here yet. That's an invitation.</p>
+    </div>
+  {{end}}
+  {{if not .Deadline}}<p class="dim">Scan the code at the box to take or leave something.</p>{{end}}
+  <a class="btn" href="{{.LeaveURL}}">Leave something</a>
 </main>
 {{end}}

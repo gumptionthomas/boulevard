@@ -61,12 +61,21 @@ func (s *Server) handleShelf(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
+	items, err := s.store.ShelvedItems(r.Context(), lib.ID)
+	if err != nil {
+		http.Error(w, "database unavailable", http.StatusInternalServerError)
+		return
+	}
 	data := pageData{
 		Title:       lib.Name,
 		LibraryName: lib.Name,
 		Location:    lib.LocationLabel,
+		LeaveURL:    "/b/" + lib.Slug + "/leave",
+		ShelfURL:    "/b/" + lib.Slug + "/",
+		Items:       items,
 	}
 	if sess, live := s.liveSession(r, lib.ID); live {
+		data.HasSession = true
 		data.Deadline = humanDeadline(sess.ExpiresAt, s.now())
 	}
 	s.render(w, http.StatusOK, "shelf.html", data)

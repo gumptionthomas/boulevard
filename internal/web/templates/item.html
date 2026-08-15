@@ -1,0 +1,14 @@
+{{define "item.html"}}{{template "layout" .}}{{end}}
+{{define "body"}}
+<main>
+  <div class="site">{{.LibraryName}}</div>
+  <p class="note">{{.Item.Note}}</p>
+  {{if eq .Item.Type "link"}}
+    <p class="src"><a href="{{.Item.Payload}}" rel="noopener noreferrer nofollow">{{.Item.LinkDomain}}</a></p>
+  {{else}}
+    <p class="itemtext">{{.Item.Payload}}</p>
+  {{end}}
+  <p class="dim">{{.Item.CopiesLeft}} copies{{if .Item.Attribution}} · left by {{.Item.Attribution}}{{end}}</p>
+  <a class="btn" href="{{.ShelfURL}}">Back to the shelf</a>
+</main>
+{{end}}
