@@ -6,7 +6,6 @@ import (
 
 	"github.com/gumptionthomas/boulevard/internal/boulevard"
 	"github.com/gumptionthomas/boulevard/internal/store"
-	"github.com/gumptionthomas/boulevard/internal/version"
 )
 
 // cookieName is the session cookie. Short, unmistakable, and namespaced so
@@ -17,13 +16,27 @@ type pageData struct {
 	Title       string
 	LibraryName string
 	Location    string
-	Deadline    string // empty when there is no live session
-	ShelfURL    string
-	CardLabel   string
-	StoppedOn   string
-	StartsOn    string
-	SourceURL   string
-	BuildLine   string
+	// HasSession is the one predicate for presence. Deadline is display
+	// only: two fields set together but branched on separately is how a
+	// page ends up asking a different question than the one beside it.
+	Deadline   string
+	ShelfURL   string
+	CardLabel  string
+	StoppedOn  string
+	StartsOn   string
+	SourceURL  string
+	BuildLine  string
+	HasSession bool
+	LeaveURL   string
+	// AwaitingApproval is the confirmation page's one branch. Spec §6.3
+	// forbids a confirmation that implies publication — but with approval
+	// off, the item really is on the shelf already, and saying a steward
+	// looks first would be the same lie in the other direction.
+	AwaitingApproval bool
+	Form             boulevard.Submission
+	Errors           boulevard.FieldErrors
+	Items            []boulevard.Item
+	Item             boulevard.Item
 }
 
 // handleRoot redirects to the sole library, or 404s.
@@ -47,7 +60,7 @@ func (s *Server) handleRoot(w http.ResponseWriter, r *http.Request) {
 		http.NotFound(w, r)
 		return
 	}
-	http.Redirect(w, r, "/b/"+slugs[0]+"/", http.StatusFound)
+	http.Redirect(w, r, shelfPath(slugs[0]), http.StatusFound)
 }
 
 func (s *Server) handleShelf(w http.ResponseWriter, r *http.Request) {
@@ -55,12 +68,21 @@ func (s *Server) handleShelf(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
+	items, err := s.store.ShelvedItems(r.Context(), lib.ID)
+	if err != nil {
+		http.Error(w, "database unavailable", http.StatusInternalServerError)
+		return
+	}
 	data := pageData{
 		Title:       lib.Name,
 		LibraryName: lib.Name,
 		Location:    lib.LocationLabel,
+		LeaveURL:    leaveURL(lib),
+		ShelfURL:    shelfURL(lib),
+		Items:       items,
 	}
 	if sess, live := s.liveSession(r, lib.ID); live {
+		data.HasSession = true
 		data.Deadline = humanDeadline(sess.ExpiresAt, s.now())
 	}
 	s.render(w, http.StatusOK, "shelf.html", data)
@@ -75,8 +97,6 @@ func (s *Server) handleAbout(w http.ResponseWriter, r *http.Request) {
 		Title:       "About " + lib.Name,
 		LibraryName: lib.Name,
 		Location:    lib.LocationLabel,
-		SourceURL:   version.RepoURL,
-		BuildLine:   "boulevard " + version.Version + " (" + version.Commit + ")",
 	})
 }
 

@@ -12,6 +12,7 @@ import (
 
 	"github.com/gumptionthomas/boulevard/internal/boulevard"
 	"github.com/gumptionthomas/boulevard/internal/store"
+	"github.com/gumptionthomas/boulevard/internal/tokens"
 )
 
 func testStore(t *testing.T) *store.Store {
@@ -61,6 +62,33 @@ func addToken(t *testing.T, st *store.Store, lib boulevard.Library, id string) b
 		ValidFrom:   boulevard.NewDate(2026, time.January, 1),
 		ValidUntil:  boulevard.NewDate(2026, time.December, 31),
 		State:       boulevard.TokenActive,
+	}
+	if err := st.InsertTokens(context.Background(), lib.ID, []boulevard.Token{tok}); err != nil {
+		t.Fatal(err)
+	}
+	return tok
+}
+
+// addAnyToken seeds one currently-valid token so a session has something
+// real to reference — sessions.token_id is a foreign key. Unlike addToken
+// above (which takes a caller-chosen id/secret for the scan-URL fixtures),
+// callers here only need a valid token to exist, not a particular one, so
+// the id and secret are generated.
+func addAnyToken(t *testing.T, st *store.Store, lib boulevard.Library) boulevard.Token {
+	t.Helper()
+	secret, err := tokens.NewSecret(rand.Reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	id, err := boulevard.RandomBase32(rand.Reader, boulevard.EntropyBytes)
+	if err != nil {
+		t.Fatal(err)
+	}
+	tok := boulevard.Token{
+		ID: id, LibraryID: lib.ID, Secret: secret, PeriodIndex: 1,
+		ValidFrom:  boulevard.NewDate(2026, time.August, 1),
+		ValidUntil: boulevard.NewDate(2026, time.August, 31),
+		State:      boulevard.TokenPending,
 	}
 	if err := st.InsertTokens(context.Background(), lib.ID, []boulevard.Token{tok}); err != nil {
 		t.Fatal(err)

@@ -86,7 +86,7 @@ func (s *Server) renderExpired(w http.ResponseWriter, r *http.Request, tok boule
 		Location:    lib.LocationLabel,
 		CardLabel:   cardLabel(tok),
 		StoppedOn:   humanDate(tok.ValidUntil.AddDays(tokens.GraceDays), boulevard.DateFromTime(now)),
-		ShelfURL:    "/b/" + lib.Slug + "/",
+		ShelfURL:    shelfURL(lib),
 	})
 }
 
@@ -107,7 +107,7 @@ func (s *Server) renderNotYet(w http.ResponseWriter, r *http.Request, tok boulev
 		Location:    lib.LocationLabel,
 		CardLabel:   cardLabel(tok),
 		StartsOn:    humanDate(tok.ValidFrom.AddDays(-tokens.GraceDays), boulevard.DateFromTime(now)),
-		ShelfURL:    "/b/" + lib.Slug + "/",
+		ShelfURL:    shelfURL(lib),
 	})
 }
 
@@ -153,5 +153,5 @@ func (s *Server) grant(w http.ResponseWriter, r *http.Request, tok boulevard.Tok
 		SameSite: http.SameSiteLaxMode,
 		Secure:   r.TLS != nil,
 	})
-	http.Redirect(w, r, "/b/"+lib.Slug+"/", http.StatusFound)
+	http.Redirect(w, r, shelfURL(lib), http.StatusFound)
 }

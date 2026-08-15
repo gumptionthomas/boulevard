@@ -85,10 +85,12 @@ GPS is never a factor in authentication: spoofable, fails indoors, and forces a 
 | `note` | **Required.** Why the leaver left it. |
 | `attribution` | Optional freeform string. "the guy with the beagle" |
 | `copies_total` / `copies_left` | |
-| `state` | `shelved` \| `shed` \| `released` |
+| `state` | `pending` \| `shelved` \| `shed` \| `released` |
 | `pinned` | Steward only, max 3 |
 | `left_at` / `shelved_at` | |
 | `views` / `takes` | Separate counters. See §7. |
+
+An item is `pending` from the moment it is left until the steward approves it (`shelved`) or rejects it (`released`). §5 requires an approval queue, and a queue is a state.
 
 **Video is never hosted.** A YouTube/Vimeo/PeerTube URL is a `link` that renders with an embed.
 
@@ -97,6 +99,8 @@ The `note` is mandatory and is the point. The media is the excuse.
 ### Presence session
 
 Ephemeral. Created by scanning the rotating code, expires 24h later, grants both `leave` and `take` for that library. No user record is ever created.
+
+**No item stores a session reference.** Sessions are never swept, so a `session_id` on an item would be a durable link between everything one person left in a 24-hour window at one box — a user record by another name. Per-session limits are counted with a counter on the session row instead, which counts without linking. The cost is that a revoked card's items cannot be retracted; that follows from presence being attestable rather than enforceable.
 
 ---
 

@@ -23,6 +23,12 @@ func main() {
 		os.Exit(runBooklet(os.Args[2:]))
 	case "serve":
 		os.Exit(runServe(os.Args[2:]))
+	case "queue":
+		os.Exit(runQueue(os.Args[2:]))
+	case "approve":
+		os.Exit(runApprove(os.Args[2:]))
+	case "reject":
+		os.Exit(runReject(os.Args[2:]))
 	case "version":
 		os.Exit(runVersion())
 	default:
@@ -38,6 +44,9 @@ func usage() {
 Usage:
   boulevard booklet --name NAME --location LABEL --base-url URL [flags]
   boulevard serve [--db PATH] [--addr ADDR]
+  boulevard queue   [--db PATH] [--slug SLUG]
+  boulevard approve [--db PATH] [--slug SLUG] <id>
+  boulevard reject  [--db PATH] [--slug SLUG] <id>
   boulevard version
 `)
 }

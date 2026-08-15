@@ -34,6 +34,14 @@ type Library struct {
 	Name          string
 	LocationLabel string
 	BaseURL       string
+
+	// The §3 settings. Defaults live in migration 2, not here, so a row
+	// created by any path gets them.
+	Slots            int
+	MaxAgeDays       int
+	DefaultCopies    int
+	ApprovalRequired bool
+	StewardContact   string
 }
 
 // Slugify lowercases, replaces runs of non-alphanumerics with a single

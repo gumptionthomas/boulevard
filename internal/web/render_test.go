@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/gumptionthomas/boulevard/internal/boulevard"
+	"github.com/gumptionthomas/boulevard/internal/version"
 )
 
 // chicago is a fixed -05:00 zone standing in for the server's local time.
@@ -99,6 +100,37 @@ func TestHumanDate(t *testing.T) {
 				t.Errorf("humanDate(%v, %v) = %q, want %q", tc.d, today, got, tc.want)
 			}
 		})
+	}
+}
+
+// TestEveryPageCarriesTheSourceLink is a licence obligation, not a style
+// choice. DESIGN.md §2 answers AGPL's source-offer requirement with
+// compliance by construction: a host who never thinks about licensing has
+// to be compliant anyway, so the link is in the layout and every page gets
+// it. Only about.html had one while eight pages existed.
+func TestEveryPageCarriesTheSourceLink(t *testing.T) {
+	srv := New(nil, time.Now)
+	for _, name := range pageTemplates {
+		rec := httptest.NewRecorder()
+		srv.render(rec, http.StatusOK, name, pageData{Title: "x"})
+		body := rec.Body.String()
+		if !strings.Contains(body, version.RepoURL) {
+			t.Errorf("%s carries no source link:\n%s", name, body)
+		}
+		if !strings.Contains(body, version.Commit) {
+			t.Errorf("%s carries no build line:\n%s", name, body)
+		}
+	}
+}
+
+// The handler does not have to remember: render stamps the two fields, so a
+// page added in a later milestone cannot ship without them.
+func TestRenderStampsTheBuildMetadata(t *testing.T) {
+	srv := New(nil, time.Now)
+	rec := httptest.NewRecorder()
+	srv.render(rec, http.StatusOK, "shelf.html", pageData{Title: "x", SourceURL: "", BuildLine: ""})
+	if !strings.Contains(rec.Body.String(), version.RepoURL) {
+		t.Error("render did not fill in SourceURL for a handler that left it empty")
 	}
 }
 

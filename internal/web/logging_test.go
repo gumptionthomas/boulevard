@@ -5,6 +5,7 @@ import (
 	"io"
 	"log"
 	"net/http"
+	"net/http/httptest"
 	"os"
 	"strings"
 	"testing"
@@ -94,10 +95,36 @@ func TestRedactPath(t *testing.T) {
 		{"/", "/"},
 		// Not a scan path; must not be redacted just for starting with s.
 		{"/shelf", "/shelf"},
+		// r.URL.Path is percent-decoded, so a crafted request writes any byte
+		// it likes into the log. A newline forges a whole line in the one file
+		// a steward reads when the box "doesn't work".
+		{"/b/x\n2026-08-15 GET / 200/leave", "/b/x 2026-08-15 GET / 200/leave"},
+		{"/b/\x1b[2Kfairview/", "/b/ [2Kfairview/"},
+		{"/b/x\r\n/", "/b/x  /"},
 	} {
 		if got := redactPath(tc.in); got != tc.want {
 			t.Errorf("redactPath(%q) = %q, want %q", tc.in, got, tc.want)
 		}
+	}
+}
+
+// TestRequestLogCannotBeForgedByAPath drives the middleware itself, not just
+// redactPath: one request must produce exactly one line no matter what the
+// path contains.
+func TestRequestLogCannotBeForgedByAPath(t *testing.T) {
+	st := testStore(t)
+	addLibrary(t, st, "fairview")
+	h := New(st, time.Now).Handler()
+
+	buf := captureLog(t)
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/", nil)
+	req.URL.Path = "/b/x\n2026-08-15 GET / 200/leave"
+	h.ServeHTTP(rec, req)
+
+	logged := strings.TrimSpace(buf.String())
+	if strings.Count(logged, "\n") != 0 {
+		t.Errorf("one request wrote %d log lines:\n%s", strings.Count(logged, "\n")+1, logged)
 	}
 }
 

@@ -11,17 +11,22 @@ Libraries stand.
 
 ## Status
 
-Milestone 1 — presence. The booklet generator plus the first HTTP server.
+Milestone 2 — the shelf. The booklet generator, the first HTTP server, and
+now items.
 
-    boulevard booklet --name "The Fairview Boulevard" \
-                      --location "4th & Fairview, Minneapolis" \
-                      --base-url https://boulevard.example.org
-    boulevard serve --addr :8080
+    boulevard booklet --name "..." --location "..." --base-url https://...
+    boulevard serve  --addr :8080
+    boulevard queue                    # what is waiting for approval
+    boulevard approve <id>             # put it on the shelf
+    boulevard reject  <id>             # release it
+
+Someone at the box scans a card, leaves a link or a note, and it waits. The
+steward approves it from a terminal, and it appears for anyone to read.
+Taking is Milestone 3; the steward's web admin is Milestone 4.
 
 `booklet` writes `boulevard.db` and a printable `boulevard-booklet.pdf`.
 `serve` puts the shelf on the web: scanning a card grants a 24-hour session,
-and the page tells you so. The shelf itself holds no items yet — that is
-Milestone 2.
+and the page tells you so.
 
 **`serve` speaks plain HTTP.** It terminates no TLS, so an `https://`
 `--base-url` needs a reverse proxy in front of it doing that. Get this right
@@ -57,6 +62,7 @@ To stamp version metadata:
 - `DESIGN.md` — the v1 specification and source of truth
 - `docs/booklet-acceptance.md` — Milestone 0 manual print-and-scan checklist
 - `docs/presence-acceptance.md` — Milestone 1 manual acceptance checklist
+- `docs/shelf-acceptance.md` — Milestone 2 manual acceptance checklist
 - `docs/superpowers/specs/` — per-milestone design documents
 
 ## License

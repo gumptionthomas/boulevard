@@ -28,7 +28,9 @@ h2 { font: 600 21px/1.3 ui-serif, Georgia, serif; margin: 0; }
 p { margin: 0 0 14px; color: #3b3830; }
 p.dim { color: #6b6659; }
 .empty { text-align: center; padding: 40px 10px; }
-.inert { opacity: .42; font-weight: 600; font-size: 13px; letter-spacing: .03em; }
+/* One rule, not two: this was declared twice and the second silently won,
+   so the effective opacity was never the one written up here. */
+.inert { opacity: .4; font-weight: 600; font-size: 13px; letter-spacing: .03em; }
 a.btn {
   display: block; text-align: center; padding: 16px; border-radius: 9px;
   font-size: 16px; font-weight: 600; text-decoration: none;
@@ -40,9 +42,47 @@ a.btn {
   p { color: #ded9cc; } p.dim { color: #a9a396; }
   a.btn { color: #fdfcf9; border-color: #fdfcf9; }
 }
+label { display:block; font-size:13px; font-weight:700; margin:20px 0 7px; }
+input, textarea, select {
+  width:100%; box-sizing:border-box; border:1.5px solid #c9c3b2; border-radius:8px;
+  padding:13px; font-size:16px; font-family:inherit; background:#fff; color:#14130d;
+}
+/* 12.5px is small text under WCAG, so it needs 4.5:1. The old #8a8478 was
+   3.6:1 on the light background. #6b6659 is p.dim's colour — 5.6:1 — and the
+   dark rule below is not optional: at #6b6659 on #14130d this would be 3.3:1. */
+.hint { font-size:12.5px; color:#6b6659; margin:7px 0 0; }
+.err { font-size:13px; color:#8a2b20; margin:7px 0 0; font-weight:600; }
+button {
+  width:100%; margin-top:26px; padding:15px; border:0; border-radius:9px;
+  background:#14130d; color:#fdfcf9; font-size:16px; font-weight:600; font-family:inherit;
+}
+button[disabled] { opacity:.4; }
+@media (prefers-color-scheme: dark) {
+  input, textarea, select { background:#1e1c15; color:#fdfcf9; border-color:#3a372c; }
+  button { background:#fdfcf9; color:#14130d; }
+  .err { color:#e8927f; }
+}
+.item { padding:20px 0; border-bottom:1px solid #e4dfd2; }
+.item:last-of-type { border-bottom:none; }
+.note { font:400 17px/1.45 ui-serif, Georgia, serif; margin:0 0 10px; }
+.note a { color:inherit; text-decoration:none; }
+.src { font-size:13px; color:#6b6659; margin:0; }
+.itemtext { font:400 15px/1.5 ui-serif, Georgia, serif; color:#3b3830;
+            border-left:3px solid #ded9cc; padding-left:14px; margin:0 0 10px; }
+footer { max-width:34rem; margin:0 auto; padding:0 20px 30px; font-size:12.5px; color:#6b6659; }
+footer a { color:inherit; }
+@media (prefers-color-scheme: dark) {
+  .item { border-color:#33302a; }
+  .hint, footer { color:#a9a396; }
+}
 </style>
 </head>
 <body>
 {{template "body" .}}
+<!-- DESIGN.md §2: every public page footer carries a source link. AGPL puts
+     the source-offer obligation on whoever runs a modified build, and a host
+     who never thinks about licensing has to be compliant regardless — so it
+     lives in the layout, where no new page can be added without it. -->
+<footer><a href="{{.SourceURL}}">Source</a> · {{.BuildLine}}</footer>
 </body>
 </html>{{end}}

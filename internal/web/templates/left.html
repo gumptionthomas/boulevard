@@ -1,0 +1,14 @@
+{{define "left.html"}}{{template "layout" .}}{{end}}
+{{define "body"}}
+<main>
+  <div class="site">{{.LibraryName}}</div>
+  <h1>Left at the box.</h1>
+  {{if .AwaitingApproval}}
+    <p>The steward looks at new things before they go on the shelf. Yours is waiting.</p>
+  {{else}}
+    <p>It's on the shelf now, for anyone who reads this boulevard.</p>
+  {{end}}
+  <p class="dim">Nothing else to do — you can walk away.</p>
+  <a class="btn" href="{{.ShelfURL}}">Back to the shelf</a>
+</main>
+{{end}}
