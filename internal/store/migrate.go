@@ -74,6 +74,10 @@ func migrate(db *sql.DB) error {
 		return fmt.Errorf("create schema_migrations: %w", err)
 	}
 
+	if err := refuseNewerSchema(db); err != nil {
+		return err
+	}
+
 	for _, m := range migrations {
 		var done int
 		if err := db.QueryRow(
@@ -101,6 +105,30 @@ func migrate(db *sql.DB) error {
 		if err := tx.Commit(); err != nil {
 			return fmt.Errorf("commit migration %d: %w", m.version, err)
 		}
+	}
+	return nil
+}
+
+// refuseNewerSchema stops an older binary from running against a database a
+// newer one has already migrated.
+//
+// The binary is a single file a steward downloads, so rolling back to a
+// previous release is a plausible thing to do — and this loop is otherwise
+// happy to skip every recorded migration and carry on against a schema it
+// has never seen. That surfaces as mysterious errors from individual
+// queries, at some later moment, with nothing pointing at the cause.
+// Naming both numbers turns it into one sentence a steward can act on.
+func refuseNewerSchema(db *sql.DB) error {
+	var found int
+	if err := db.QueryRow(
+		`SELECT COALESCE(MAX(version), 0) FROM schema_migrations`).Scan(&found); err != nil {
+		return fmt.Errorf("read the schema version: %w", err)
+	}
+	known := migrations[len(migrations)-1].version
+	if found > known {
+		return fmt.Errorf(
+			"database is at schema version %d but this build only knows %d; run a newer boulevard",
+			found, known)
 	}
 	return nil
 }

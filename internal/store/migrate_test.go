@@ -3,6 +3,8 @@ package store
 import (
 	"context"
 	"path/filepath"
+	"strconv"
+	"strings"
 	"testing"
 )
 
@@ -60,6 +62,47 @@ func TestMigrateIsIdempotent(t *testing.T) {
 	}
 	if applied != len(migrations) {
 		t.Errorf("applied %d migrations, want %d — each must run exactly once", applied, len(migrations))
+	}
+}
+
+// TestMigrateRefusesANewerSchema covers the downgrade: the binary is a
+// single file a steward downloads, so running last month's build against
+// this month's database is plausible. Without this, migrate skips every
+// recorded migration and carries on against a schema it has never seen.
+func TestMigrateRefusesANewerSchema(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "newer.db")
+	s, err := Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	future := migrations[len(migrations)-1].version + 1
+	if _, err := s.db.Exec(
+		`INSERT INTO schema_migrations (version, applied_at) VALUES (?, datetime('now'))`, future); err != nil {
+		t.Fatal(err)
+	}
+	s.Close()
+
+	_, err = Open(path)
+	if err == nil {
+		t.Fatal("opening a database from a newer build succeeded, want a refusal")
+	}
+	for _, want := range []string{strconv.Itoa(future), strconv.Itoa(migrations[len(migrations)-1].version)} {
+		if !strings.Contains(err.Error(), want) {
+			t.Errorf("error %q does not name %q; both numbers are what make it actionable", err, want)
+		}
+	}
+}
+
+// The same version is not newer, so a build that matches its database opens
+// normally — including the very common case of no migrations left to run.
+func TestMigrateAcceptsItsOwnSchemaVersion(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "same.db")
+	for i := 0; i < 2; i++ {
+		s, err := Open(path)
+		if err != nil {
+			t.Fatalf("open %d: %v", i, err)
+		}
+		s.Close()
 	}
 }
 

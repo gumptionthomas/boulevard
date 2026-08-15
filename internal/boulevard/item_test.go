@@ -85,17 +85,33 @@ func TestValidateSubmissionTextLength(t *testing.T) {
 	}
 }
 
+// Both sides of both limits. `>` versus `>=` is the classic silent
+// off-by-one, and a cap that rejects a note exactly at the limit is a
+// composed note lost for no reason — which §6.2 calls this form's worst
+// failure. Multi-byte on purpose: the limits are runes, not bytes.
 func TestValidateSubmissionNoteAndAttributionLength(t *testing.T) {
+	at := linkSubmission()
+	at.Note = strings.Repeat("é", MaxNoteRunes)
+	if _, errs := ValidateSubmission(at); errs["note"] != "" {
+		t.Errorf("a note exactly at the limit was rejected: %v", errs)
+	}
+
 	over := linkSubmission()
-	over.Note = strings.Repeat("a", MaxNoteRunes+1)
+	over.Note = strings.Repeat("é", MaxNoteRunes+1)
 	if _, errs := ValidateSubmission(over); errs["note"] == "" {
-		t.Error("over-long note accepted")
+		t.Error("a note one rune over the limit was accepted")
+	}
+
+	at = linkSubmission()
+	at.Attribution = strings.Repeat("é", MaxAttributionRunes)
+	if _, errs := ValidateSubmission(at); errs["attribution"] != "" {
+		t.Errorf("an attribution exactly at the limit was rejected: %v", errs)
 	}
 
 	over = linkSubmission()
-	over.Attribution = strings.Repeat("a", MaxAttributionRunes+1)
+	over.Attribution = strings.Repeat("é", MaxAttributionRunes+1)
 	if _, errs := ValidateSubmission(over); errs["attribution"] == "" {
-		t.Error("over-long attribution accepted")
+		t.Error("an attribution one rune over the limit was accepted")
 	}
 }
 
