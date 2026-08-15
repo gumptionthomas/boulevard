@@ -113,10 +113,7 @@ func shedDecide(args []string, verb string) int {
 	}
 	it, err := resolvePrefix(shed, fs.Arg(0))
 	if err != nil {
-		// A mistyped or ambiguous handle is the steward's own terminal
-		// telling them what went wrong, not a machine failure — printed
-		// where they're already reading, same as the refusals below.
-		fmt.Printf("\n  x  %v\n\n", err)
+		fmt.Fprintf(os.Stderr, "  x  %v\n", err)
 		return exitUsage
 	}
 
@@ -135,9 +132,9 @@ func shedDecide(args []string, verb string) int {
 			// wraps ErrShelfFull as "shelf has %d of %d slots" — so this prints
 			// that rather than recomputing the count and risking it drifting
 			// from what actually blocked the write.
-			fmt.Printf("\n  x  %v — nothing was moved.\n"+
+			fmt.Fprintf(os.Stderr, "  x  %v — nothing was moved.\n"+
 				"     Reshelve does not evict to make room — approve or reject\n"+
-				"     something first, or release this item instead.\n\n", err)
+				"     something first, or release this item instead.\n", err)
 			return exitUsage
 		}
 		fmt.Fprintf(os.Stderr, "  x  %v\n", err)

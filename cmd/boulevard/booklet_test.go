@@ -511,6 +511,34 @@ func captureStdout(t *testing.T, fn func()) string {
 	return <-done
 }
 
+// captureStderr collects what a command prints to os.Stderr, modelled
+// directly on captureStdout above: same signature, same restore-on-return
+// discipline. Needed because unlike runBooklet's progress output, an error
+// refusal is written where a steward's terminal (not a redirected stdout
+// file) shows it — see shed.go's shedDecide.
+func captureStderr(t *testing.T, fn func()) string {
+	t.Helper()
+	r, w, err := os.Pipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	saved := os.Stderr
+	os.Stderr = w
+	done := make(chan string, 1)
+	go func() {
+		var b bytes.Buffer
+		io.Copy(&b, r)
+		done <- b.String()
+	}()
+	defer func() {
+		os.Stderr = saved
+		r.Close()
+	}()
+	fn()
+	w.Close()
+	return <-done
+}
+
 func mustTime(t *testing.T, s string) time.Time {
 	t.Helper()
 	ts, err := time.Parse("2006-01-02", s)

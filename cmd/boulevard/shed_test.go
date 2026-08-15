@@ -84,7 +84,7 @@ func TestReshelveOntoAFullShelfRefusesAndNamesWhy(t *testing.T) {
 	lib := libs[0]
 	it := fullShelfWithOneShedItem(t, s, lib)
 
-	out := captureStdout(t, func() {
+	out := captureStderr(t, func() {
 		if code := runReshelve([]string{"--db", path, it.ID[:4]}); code == exitOK {
 			t.Error("reshelve onto a full shelf succeeded")
 		}
@@ -118,7 +118,7 @@ func TestShedPrefixRefusesAnAmbiguousMatch(t *testing.T) {
 	shedOne(t, s, lib, "AAAA1ZZZZZZZZZZZZZZZZZZZZZ", "first")
 	shedOne(t, s, lib, "AAAA2ZZZZZZZZZZZZZZZZZZZZZ", "second")
 
-	out := captureStdout(t, func() {
+	out := captureStderr(t, func() {
 		if code := runReshelve([]string{"--db", path, "AAAA"}); code == exitOK {
 			t.Error("an ambiguous prefix was resolved rather than refused")
 		}
