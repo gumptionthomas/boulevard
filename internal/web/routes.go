@@ -16,5 +16,3 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /s/{token}", s.handleScan)
 	return mux
 }
-
-func (s *Server) handleScan(w http.ResponseWriter, r *http.Request) { http.NotFound(w, r) }

@@ -6,6 +6,8 @@ import (
 	"log"
 	"net/http"
 	"time"
+
+	"github.com/gumptionthomas/boulevard/internal/boulevard"
 )
 
 // render executes a page template into a buffer first, and only writes the
@@ -53,4 +55,9 @@ func humanDeadline(expires, now time.Time) string {
 	default:
 		return fmt.Sprintf("%s on %d %s", clock, expires.Day(), expires.Month())
 	}
+}
+
+// humanDate renders "7 September" for the out-of-date page.
+func humanDate(d boulevard.Date) string {
+	return fmt.Sprintf("%d %s", d.Day, d.Month)
 }
