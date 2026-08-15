@@ -235,6 +235,31 @@ func TestItemPageOnlyRendersShelvedItems(t *testing.T) {
 	})
 }
 
+// TestItemPageOnUnknownIDRendersInvalidPage is F8: before this milestone a
+// shelved item's URL never went stale, so a bare id that names nothing was
+// the only way to reach this 404 and the stdlib's plain-text page was an
+// acceptable stand-in. Now expiry sheds items on a schedule and a take can
+// shed one in a tap, so someone following a shared link to an item that
+// left the shelf last week is a routine case, not a typo — it must get the
+// same page an unknown library slug gets, not "404 page not found" in the
+// browser's default font.
+func TestItemPageOnUnknownIDRendersInvalidPage(t *testing.T) {
+	st := testStore(t)
+	lib := addLibrary(t, st, "fairview")
+	now := time.Date(2026, time.August, 15, 12, 0, 0, 0, time.UTC)
+
+	rec := get(t, New(st, func() time.Time { return now }).Handler(), "/b/"+lib.Slug+"/i/NOSUCHITEM")
+	if rec.Code != http.StatusNotFound {
+		t.Fatalf("status = %d, want 404", rec.Code)
+	}
+	if !strings.Contains(rec.Body.String(), "That code isn't valid.") {
+		t.Errorf("body did not render invalid.html; got:\n%s", rec.Body.String())
+	}
+	if strings.Contains(rec.Body.String(), "404 page not found") {
+		t.Error("the stdlib's plain-text 404 leaked through")
+	}
+}
+
 func TestItemPage404sAcrossLibraries(t *testing.T) {
 	st := testStore(t)
 	lib := addLibrary(t, st, "fairview")

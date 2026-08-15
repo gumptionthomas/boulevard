@@ -35,9 +35,13 @@ func (s *Server) handleTake(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// invalid.html, not the stdlib 404 (F8): the item may have been public a
+	// minute ago and shed since, by expiry or by someone else's take, so a
+	// shared link to it going stale is now routine rather than a bug. See
+	// item.go's handleItem for the fuller reasoning; it applies here too.
 	it, err := s.store.ItemByID(r.Context(), lib.ID, itemID)
 	if errors.Is(err, store.ErrNotFound) {
-		http.NotFound(w, r)
+		s.renderInvalid(w)
 		return
 	}
 	if err != nil {
@@ -64,7 +68,7 @@ func (s *Server) handleTake(w http.ResponseWriter, r *http.Request) {
 			s.refuseTake(w, r, lib, http.StatusConflict, "Someone took the last one.")
 			return
 		}
-		http.NotFound(w, r)
+		s.renderInvalid(w)
 		return
 	case errors.Is(err, store.ErrLimitReached):
 		s.refuseTake(w, r, lib, http.StatusForbidden,
@@ -112,7 +116,7 @@ func (s *Server) handleUntake(w http.ResponseWriter, r *http.Request) {
 	err := s.store.UntakeItem(r.Context(), lib.ID, sess.ID, itemID)
 	switch {
 	case errors.Is(err, store.ErrNotFound):
-		http.NotFound(w, r)
+		s.renderInvalid(w)
 		return
 	case errors.Is(err, store.ErrShelfFull):
 		s.refuseTake(w, r, lib, http.StatusConflict,

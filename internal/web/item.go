@@ -35,9 +35,20 @@ func (s *Server) handleItem(w http.ResponseWriter, r *http.Request) {
 		log.Printf("items not swept: %v", err)
 	}
 
+	// A 404 here renders invalid.html rather than the stdlib's plain-text
+	// page (F8), for the same reason libraryFromPath already does: before
+	// this milestone a shelved item's URL never went stale, so the stdlib
+	// 404 was unreachable in practice. Now expiry sheds items on a schedule
+	// and a take can shed one in a tap, so someone following a shared link
+	// to an item that's since left the shelf is exactly the "stale or
+	// mistyped URL" case invalid.html exists for. invalid.html stays safe
+	// to reuse here for the same reason it's safe on an unknown slug: it
+	// names no item and no library, so it says nothing this 404 should not
+	// say — an item 404 must stay as generic as a library 404, since both
+	// have to be indistinguishable from an unknown or revoked token secret.
 	it, err := s.store.ItemByID(r.Context(), lib.ID, r.PathValue("id"))
 	if errors.Is(err, store.ErrNotFound) {
-		http.NotFound(w, r)
+		s.renderInvalid(w)
 		return
 	}
 	if err != nil {
@@ -50,7 +61,7 @@ func (s *Server) handleItem(w http.ResponseWriter, r *http.Request) {
 	// shelved: pending items skip the approval gate otherwise, and shed or
 	// released items stay reachable at a URL DESIGN.md says is not public.
 	if it.State != boulevard.ItemShelved {
-		http.NotFound(w, r)
+		s.renderInvalid(w)
 		return
 	}
 

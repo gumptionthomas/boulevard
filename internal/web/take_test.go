@@ -422,6 +422,10 @@ func TestTakeWithNoCopiesGetsCopyTrueForZeroCopies(t *testing.T) {
 	}
 }
 
+// TestTakeOnAnUnknownItemIs404 also covers F8: the 404 must render
+// invalid.html, the same generic page a stale or mistyped library slug
+// gets, not the stdlib's plain-text page — a take on an item that expired
+// or was taken to zero since the link was shared is now routine.
 func TestTakeOnAnUnknownItemIs404(t *testing.T) {
 	srv, lib, cookie, _ := takeServer(t, boulevard.ItemLink, "https://example.com/thing")
 
@@ -432,6 +436,26 @@ func TestTakeOnAnUnknownItemIs404(t *testing.T) {
 
 	if rec.Code != http.StatusNotFound {
 		t.Errorf("status = %d, want 404", rec.Code)
+	}
+	if !strings.Contains(rec.Body.String(), "That code isn't valid.") {
+		t.Errorf("body did not render invalid.html; got:\n%s", rec.Body.String())
+	}
+}
+
+// TestUntakeOnAnUnknownItemIs404 is handleUntake's half of F8.
+func TestUntakeOnAnUnknownItemIs404(t *testing.T) {
+	srv, lib, cookie, _ := takeServer(t, boulevard.ItemLink, "https://example.com/thing")
+
+	req := httptest.NewRequest(http.MethodPost, "/b/"+lib.Slug+"/i/NOSUCHITEM/untake", nil)
+	req.AddCookie(cookie)
+	rec := httptest.NewRecorder()
+	srv.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusNotFound {
+		t.Errorf("status = %d, want 404", rec.Code)
+	}
+	if !strings.Contains(rec.Body.String(), "That code isn't valid.") {
+		t.Errorf("body did not render invalid.html; got:\n%s", rec.Body.String())
 	}
 }
 
