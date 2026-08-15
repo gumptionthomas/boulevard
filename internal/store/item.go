@@ -82,10 +82,18 @@ func (s *Store) ItemByID(ctx context.Context, id boulevard.LibraryID, itemID str
 }
 
 func (s *Store) IncrementViews(ctx context.Context, id boulevard.LibraryID, itemID string) error {
-	if _, err := s.db.ExecContext(ctx,
+	res, err := s.db.ExecContext(ctx,
 		`UPDATE items SET views = views + 1 WHERE library_id = ? AND id = ?`,
-		string(id), itemID); err != nil {
+		string(id), itemID)
+	if err != nil {
 		return fmt.Errorf("increment views on %s: %w", itemID, err)
+	}
+	n, err := res.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("increment views on %s: %w", itemID, err)
+	}
+	if n == 0 {
+		return fmt.Errorf("increment views on %s: %w", itemID, ErrNotFound)
 	}
 	return nil
 }

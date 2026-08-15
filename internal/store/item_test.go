@@ -201,3 +201,43 @@ func TestIncrementViews(t *testing.T) {
 		t.Errorf("Takes = %d, want 0 — nothing can take until Milestone 3", got.Takes)
 	}
 }
+
+func TestIncrementViewsUnknownItemIsErrNotFound(t *testing.T) {
+	ctx, s := context.Background(), openTemp(t)
+	lib := makeLibrary(t)
+	if err := s.CreateLibrary(ctx, lib); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.IncrementViews(ctx, lib.ID, "NOSUCHITEM"); !errors.Is(err, ErrNotFound) {
+		t.Errorf("err = %v, want ErrNotFound", err)
+	}
+}
+
+func TestIncrementViewsAcrossLibrariesIsErrNotFound(t *testing.T) {
+	ctx, s := context.Background(), openTemp(t)
+	a := makeLibrary(t)
+	b := makeLibrary(t)
+	b.Slug = "other"
+	bID, _ := boulevard.NewLibraryID(rand.Reader)
+	b.ID = bID
+	for _, lib := range []boulevard.Library{a, b} {
+		if err := s.CreateLibrary(ctx, lib); err != nil {
+			t.Fatal(err)
+		}
+	}
+	it := makeItem(t, a, "mine", time.Now().UTC())
+	if err := s.CreateItem(ctx, a.ID, it); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := s.IncrementViews(ctx, b.ID, it.ID); !errors.Is(err, ErrNotFound) {
+		t.Errorf("err = %v, want ErrNotFound — an item must not be reachable through another library", err)
+	}
+	got, err := s.ItemByID(ctx, a.ID, it.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Views != 0 {
+		t.Errorf("Views = %d, want 0 — a cross-library call must touch nothing", got.Views)
+	}
+}
