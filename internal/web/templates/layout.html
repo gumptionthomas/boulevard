@@ -57,9 +57,26 @@ button {
   background:#14130d; color:#fdfcf9; font-size:16px; font-weight:600; font-family:inherit;
 }
 button[disabled] { opacity:.4; }
+/* .linkish is the undo control ("Put it back"): a take is the shelf's
+   primary action and an undo is not, so it must not be pixel-identical to
+   the filled black button — on a twelve-item shelf that reads as twelve
+   equally loud slabs, and the one that gives an item back is the one that
+   most needs to look different. Outline weight, not smaller or greyer:
+   same padding and border-radius as the primary button, so the tap target
+   stays full-sized, and the same #14130d/#fdfcf9 ink pair a.btn already
+   uses for its own outline style, which clears WCAG AA against both
+   backgrounds in both colour schemes. */
+.linkish { background:transparent; border:2px solid #14130d; color:#14130d; }
+/* On the shelf, each item's own take/undo control sits inside a repeated
+   .item card, not the page's one primary action — a full-width button per
+   item, 26px apart, reads as page furniture rather than a per-item
+   control. Scoped to .item so item.html's single take control (the page's
+   actual primary action) keeps the full-width treatment. */
+.item form button { width:auto; margin-top:12px; padding:12px 22px; }
 @media (prefers-color-scheme: dark) {
   input, textarea, select { background:#1e1c15; color:#fdfcf9; border-color:#3a372c; }
   button { background:#fdfcf9; color:#14130d; }
+  .linkish { border-color:#fdfcf9; color:#fdfcf9; }
   .err { color:#e8927f; }
 }
 .item { padding:20px 0; border-bottom:1px solid #e4dfd2; }
