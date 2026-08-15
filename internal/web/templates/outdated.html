@@ -1,0 +1,11 @@
+{{define "outdated.html"}}{{template "layout" .}}{{end}}
+{{define "body"}}
+<main>
+  <div class="site">{{.LibraryName}}</div>
+  <h1>This card is out of date.</h1>
+  <p>The card in this box is <b>{{.CardLabel}}</b>. It stopped working on {{.StoppedOn}}.</p>
+  <p>The steward needs to swap in the next card.</p>
+  <p class="dim">Nothing is wrong with the shelf. You just can't leave or take until that happens.</p>
+  <a class="btn" href="{{.ShelfURL}}">Browse the shelf anyway</a>
+</main>
+{{end}}
