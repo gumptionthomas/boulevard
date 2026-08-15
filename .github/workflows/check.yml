@@ -1,0 +1,65 @@
+name: check
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+# Nothing here needs write access to the repository.
+permissions:
+  contents: read
+
+jobs:
+  check:
+    name: build, test, vet, format
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # Read the version from go.mod rather than pinning it here, so the
+      # toolchain and the module cannot drift apart.
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          check-latest: true
+
+      - name: Build
+        run: go build ./...
+
+      - name: Test
+        run: go test ./...
+
+      - name: Vet
+        run: go vet ./...
+
+      - name: Formatting
+        run: |
+          unformatted=$(gofmt -l .)
+          if [ -n "$unformatted" ]; then
+            echo "These files are not gofmt'd:"
+            echo "$unformatted"
+            exit 1
+          fi
+
+      # DESIGN.md §2 makes "download one file, run it" the adoption strategy,
+      # and that rests entirely on the SQLite driver being pure Go. A cgo
+      # dependency would still build and test fine on this runner while
+      # quietly ending the static binary. Cross-compiling with CGO_ENABLED=0
+      # is what makes that regression loud.
+      - name: Static cross-compile, no cgo
+        env:
+          CGO_ENABLED: "0"
+          GOOS: linux
+          GOARCH: arm64
+        run: go build -o /dev/null ./cmd/boulevard
+
+      # Milestone 1 shipped a bug where the session banner rendered its
+      # deadline in UTC: the store parses timestamps back as UTC, and the
+      # formatter used the value's own location. Every test passed, because
+      # every test pinned UTC on both sides. Running the suite again under a
+      # real offset closes that hole.
+      #
+      # -count=1 is load-bearing: without it the cached results from the run
+      # above are reused and this step proves nothing.
+      - name: Test under a non-UTC timezone
+        run: TZ=America/Chicago go test -count=1 ./...
