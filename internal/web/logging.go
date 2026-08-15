@@ -43,8 +43,16 @@ func (w *statusWriter) WriteHeader(status int) {
 
 // redactPath removes the secret from a scan URL. Everything else on this
 // server is a public path with nothing in it worth hiding.
+//
+// The prefix test is case-insensitive on purpose, and it is not symmetry for
+// its own sake. Go's ServeMux is case-sensitive, so a request to /S/<secret>
+// never reaches the scan handler — it 404s. But it still carries a real
+// secret, and a case-sensitive check here would write that secret to the log
+// unredacted. The failure mode is mundane: someone types the URL from a card
+// with caps lock on. A request that never matched a route is exactly the one
+// whose path a steward is most likely to go looking at afterwards.
 func redactPath(p string) string {
-	if strings.HasPrefix(p, "/s/") {
+	if strings.HasPrefix(strings.ToLower(p), "/s/") {
 		return "/s/<redacted>"
 	}
 	return p

@@ -83,9 +83,17 @@ func TestRedactPath(t *testing.T) {
 	for _, tc := range []struct{ in, want string }{
 		{"/s/K7QFM8X2N4TJ9WPR3VYB6HZQ5C", "/s/<redacted>"},
 		{"/s/", "/s/<redacted>"},
+		// ServeMux is case-sensitive, so these never reach the scan handler
+		// and 404 — but they still carry a real secret, and a request that
+		// matched no route is the one a steward is most likely to go looking
+		// at in the log afterwards.
+		{"/S/K7QFM8X2N4TJ9WPR3VYB6HZQ5C", "/s/<redacted>"},
+		{"/S/k7qfm8x2n4tj9wpr3vyb6hzq5c", "/s/<redacted>"},
 		{"/b/fairview/", "/b/fairview/"},
 		{"/b/fairview/about", "/b/fairview/about"},
 		{"/", "/"},
+		// Not a scan path; must not be redacted just for starting with s.
+		{"/shelf", "/shelf"},
 	} {
 		if got := redactPath(tc.in); got != tc.want {
 			t.Errorf("redactPath(%q) = %q, want %q", tc.in, got, tc.want)
