@@ -81,6 +81,85 @@ func TestLeaveSubmitWithoutASessionIs403(t *testing.T) {
 	}
 }
 
+// TestLeaveSubmit403KeepsTheComposedNote covers the 403 for the same reason
+// the 422 path re-renders: DESIGN.md §4 sells the 24-hour window as "scan on
+// your walk, write at your kitchen table", so a session expiring between
+// loading the form and submitting it is the intended usage pattern hitting
+// its boundary — not a rare accident. Handing back a blank form loses a
+// composed note exactly as a validation error would.
+func TestLeaveSubmit403KeepsTheComposedNote(t *testing.T) {
+	st := testStore(t)
+	addLibrary(t, st, "fairview")
+
+	form := goodForm()
+	form.Set("note", "Reminded me of the alley cat, and of the rain.")
+	form.Set("payload", "https://example.org/kept")
+	form.Set("attribution", "the guy with the beagle")
+	rec := postLeave(t, st, "fairview", form, time.Now(), nil)
+
+	if rec.Code != http.StatusForbidden {
+		t.Fatalf("status = %d, want 403", rec.Code)
+	}
+	body := rec.Body.String()
+	for _, want := range []string{
+		"Reminded me of the alley cat, and of the rain.",
+		"https://example.org/kept",
+		"the guy with the beagle",
+	} {
+		if !strings.Contains(body, want) {
+			t.Errorf("the 403 form lost %q; the note is the part that took effort", want)
+		}
+	}
+	// Still inert, which is what makes re-rendering it populated safe.
+	if !strings.Contains(body, "Scan the code at the box to take or leave something.") {
+		t.Error("the 403 form must still carry the §6 explanation")
+	}
+	if !strings.Contains(body, "disabled") {
+		t.Error("the 403 form must still be inert")
+	}
+}
+
+// TestLeaveSubmitCapsTheBody guards the only route that accepts a write from
+// a stranger. Without a limit, ParseForm reads up to Go's 10 MB default into
+// memory before any rune cap applies, and every request serializes through
+// one SQLite connection.
+func TestLeaveSubmitCapsTheBody(t *testing.T) {
+	st := testStore(t)
+	lib := addLibrary(t, st, "fairview")
+	now := time.Date(2026, time.August, 15, 12, 0, 0, 0, time.UTC)
+
+	form := goodForm()
+	form.Set("payload", strings.Repeat("x", maxLeaveBody))
+	rec := postLeave(t, st, "fairview", form, now, &lib)
+	if rec.Code != http.StatusBadRequest {
+		t.Errorf("status = %d, want 400 for a body over the cap", rec.Code)
+	}
+	items, err := st.PendingItems(context.Background(), lib.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(items) != 0 {
+		t.Error("an over-long submission was stored")
+	}
+}
+
+// A submission that uses its whole allowance in a multi-byte script must
+// still fit: the cap is bytes and the validation limits are runes.
+func TestLeaveSubmitAcceptsEveryFieldAtItsLimit(t *testing.T) {
+	st := testStore(t)
+	lib := addLibrary(t, st, "fairview")
+	now := time.Date(2026, time.August, 15, 12, 0, 0, 0, time.UTC)
+
+	form := goodForm()
+	form.Set("type", "text")
+	form.Set("payload", strings.Repeat("é", boulevard.MaxTextRunes))
+	form.Set("note", strings.Repeat("é", boulevard.MaxNoteRunes))
+	form.Set("attribution", strings.Repeat("é", boulevard.MaxAttributionRunes))
+	if rec := postLeave(t, st, "fairview", form, now, &lib); rec.Code != http.StatusSeeOther {
+		t.Errorf("status = %d, want 303 — every field is exactly at its rune limit", rec.Code)
+	}
+}
+
 func TestLeaveSubmitWithAnotherLibrarysSessionIs403(t *testing.T) {
 	st := testStore(t)
 	addLibrary(t, st, "fairview")
