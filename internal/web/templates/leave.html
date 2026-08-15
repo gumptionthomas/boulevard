@@ -6,6 +6,8 @@
   <h1>Leave something</h1>
   {{if not .HasSession}}
     <p class="dim">Scan the code at the box to take or leave something.</p>
+  {{else if .AtLeaveLimit}}
+    <p class="dim">You've left three things with this scan. Scan the card again for more.</p>
   {{end}}
   <form method="post" action="{{.LeaveURL}}">
     <label for="type">What is it?</label>
@@ -28,7 +30,7 @@
     <input id="attribution" name="attribution" value="{{.Form.Attribution}}">
     {{with .Errors.attribution}}<p class="err">{{.}}</p>{{end}}
 
-    <button type="submit" {{if not .HasSession}}disabled{{end}}>Leave it</button>
+    <button type="submit" {{if or (not .HasSession) .AtLeaveLimit}}disabled{{end}}>Leave it</button>
   </form>
 </main>
 {{end}}

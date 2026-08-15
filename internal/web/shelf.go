@@ -2,6 +2,7 @@ package web
 
 import (
 	"errors"
+	"log"
 	"net/http"
 
 	"github.com/gumptionthomas/boulevard/internal/boulevard"
@@ -48,6 +49,10 @@ type pageData struct {
 	// and untake handlers always re-render the shelf on failure, whichever
 	// page the control was pressed on (see refuseTake in take.go).
 	Notice string
+	// AtLeaveLimit is set when this session has left its three (DESIGN.md
+	// §4). Like AtLimit on itemView, the form goes inert with an explanation
+	// rather than disappearing — show the rule, do not hide the feature.
+	AtLeaveLimit bool
 }
 
 // itemView is one item plus what this viewer may do with it. The template
@@ -122,6 +127,18 @@ func (s *Server) handleShelf(w http.ResponseWriter, r *http.Request) {
 // handleTake and handleUntake re-render here on failure regardless of which
 // page the control was on.
 func (s *Server) renderShelf(w http.ResponseWriter, r *http.Request, lib boulevard.Library, status int, msg string) {
+	// Both sweeps, on every HTML read path that can show an item. The item
+	// page is easy to forget and would otherwise serve an expired item at
+	// its own shareable URL forever: an unswept item is still `shelved`, so
+	// the state filter passes it. A link that outlives the shelf listing is
+	// exactly what expiry exists to prevent.
+	if _, err := s.store.SweepExpiredSessions(r.Context(), s.now()); err != nil {
+		log.Printf("sessions not swept: %v", err)
+	}
+	if _, err := s.store.SweepExpiredItems(r.Context(), lib.ID, s.now()); err != nil {
+		log.Printf("items not swept: %v", err)
+	}
+
 	items, err := s.store.ShelvedItems(r.Context(), lib.ID)
 	if err != nil {
 		http.Error(w, "database unavailable", http.StatusInternalServerError)

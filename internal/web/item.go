@@ -22,6 +22,18 @@ func (s *Server) handleItem(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
+	// Both sweeps, on every HTML read path that can show an item. The item
+	// page is easy to forget and would otherwise serve an expired item at
+	// its own shareable URL forever: an unswept item is still `shelved`, so
+	// the state filter below passes it. A link that outlives the shelf
+	// listing is exactly what expiry exists to prevent.
+	if _, err := s.store.SweepExpiredSessions(r.Context(), s.now()); err != nil {
+		log.Printf("sessions not swept: %v", err)
+	}
+	if _, err := s.store.SweepExpiredItems(r.Context(), lib.ID, s.now()); err != nil {
+		log.Printf("items not swept: %v", err)
+	}
+
 	it, err := s.store.ItemByID(r.Context(), lib.ID, r.PathValue("id"))
 	if errors.Is(err, store.ErrNotFound) {
 		http.NotFound(w, r)

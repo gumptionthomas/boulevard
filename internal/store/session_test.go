@@ -113,3 +113,37 @@ func TestSessionTTLIs24Hours(t *testing.T) {
 		t.Errorf("SessionTTL = %v, want 24h (DESIGN.md §4)", boulevard.SessionTTL)
 	}
 }
+
+func TestLeavesCounterRoundTrips(t *testing.T) {
+	loc := chicago(t)
+	st := openTemp(t)
+	// seededLibrary, not seedLibrary — sessions.token_id is a foreign key
+	// into tokens and the DSN enforces it, so a made-up token id will not
+	// insert. See Task 4's takeSetup for the same note.
+	lib, toks := seededLibrary(t, st)
+	now := time.Date(2026, 8, 15, 20, 25, 0, 0, loc)
+	sess := boulevard.Session{
+		ID: "S1", LibraryID: lib.ID, TokenID: toks[0].ID,
+		CreatedAt: now, ExpiresAt: now.Add(boulevard.SessionTTL),
+	}
+	if err := st.CreateSession(context.Background(), sess); err != nil {
+		t.Fatalf("create: %v", err)
+	}
+
+	n, err := st.LeavesForSession(context.Background(), sess.ID)
+	if err != nil {
+		t.Fatalf("leaves: %v", err)
+	}
+	if n != 0 {
+		t.Fatalf("new session has %d leaves, want 0", n)
+	}
+
+	for i := 0; i < 2; i++ {
+		if err := st.IncrementLeaves(context.Background(), sess.ID); err != nil {
+			t.Fatalf("increment: %v", err)
+		}
+	}
+	if n, _ = st.LeavesForSession(context.Background(), sess.ID); n != 2 {
+		t.Errorf("leaves = %d, want 2", n)
+	}
+}
