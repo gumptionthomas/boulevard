@@ -126,10 +126,24 @@ func (s *Store) IncrementViews(ctx context.Context, id boulevard.LibraryID, item
 //
 // `approve` runs in a separate process from `serve`, so the two can hold
 // this transaction at once. It opens deferred and upgrades to a write lock
-// at the first UPDATE, which is where SQLite can answer SQLITE_BUSY; the
-// busy_timeout pragma absorbs a short overlap, and a longer one surfaces as
-// a failed approval rather than a half-applied one, which is the outcome
-// this transaction exists to guarantee.
+// at the first UPDATE. That upgrade can fail two different ways, and only
+// one of them is what busy_timeout absorbs: an ordinary write-lock wait
+// (another writer mid-transaction right now) retries and usually succeeds
+// within the timeout, but in WAL mode a deferred transaction can instead hit
+// SQLITE_BUSY_SNAPSHOT — its read snapshot is stale because some other
+// writer committed since this transaction opened — and busy_timeout does
+// not retry that at all; it surfaces immediately. Either failure aborts the
+// transaction wholesale via the deferred Rollback above; neither leaves a
+// half-applied approval, which is the guarantee that actually holds here,
+// not "busy_timeout absorbs it." The read-path sweeps this milestone added
+// (SweepExpiredSessions, SweepExpiredItems) run inside their own
+// transactions on the same request paths as a concurrent `approve` or
+// `reshelve`, which widens the window in which one of them commits between
+// this transaction's read and its write and costs it the snapshot. Fixing
+// that is `_txlock=immediate` on the DSN, which forces every transaction to
+// take its write lock up front instead of deferring — out of scope for this
+// fix wave, since it changes the locking mode of every transaction in the
+// binary.
 func (s *Store) ApproveItem(ctx context.Context, id boulevard.LibraryID, itemID string, now time.Time) (string, error) {
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
