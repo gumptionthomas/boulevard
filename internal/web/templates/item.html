@@ -9,6 +9,7 @@
     <p class="itemtext">{{.Item.Payload}}</p>
   {{end}}
   {{template "takecontrol" .Item}}
+  <p class="dim">Taken {{.Item.Takes}} times</p>
   {{if .Item.Attribution}}<p class="dim">left by {{.Item.Attribution}}</p>{{end}}
   {{if not .HasSession}}<p class="dim">Scan the code at the box to take or leave something.</p>{{end}}
   <a class="btn" href="{{.ShelfURL}}">Back to the shelf</a>

@@ -15,8 +15,9 @@ import (
 // It counts a view. §7 keeps views and takes as separate numbers because
 // they answer different questions — "the internet found this" versus "three
 // neighbours wanted it" — and views deliberately drive nothing at all.
-// Neither is displayed yet: until takes can move, every item would read
-// "Taken 0 times".
+// item.html displays takes ("Taken N times", §7); it does not display
+// views, and nothing here or in the template lets views feed back into
+// shelf state.
 func (s *Server) handleItem(w http.ResponseWriter, r *http.Request) {
 	lib, ok := s.libraryFromPath(w, r)
 	if !ok {

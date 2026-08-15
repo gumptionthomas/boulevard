@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/rand"
 	"net/http"
+	"net/http/httptest"
 	"strings"
 	"testing"
 	"time"
@@ -106,9 +107,10 @@ func TestItemPageRendersAndCountsAView(t *testing.T) {
 	if !strings.Contains(rec.Body.String(), "worth sharing") {
 		t.Error("the item page does not show the note")
 	}
-	// §7: the counters are not displayed until takes can move.
-	if strings.Contains(rec.Body.String(), "Taken 0 times") {
-		t.Error("a take count was displayed; nothing can take until Milestone 3")
+	// §7: takes are displayed on the item page; an untaken item reads
+	// "Taken 0 times" rather than omitting the line.
+	if !strings.Contains(rec.Body.String(), "Taken 0 times") {
+		t.Error("the item page does not display its take count")
 	}
 
 	get(t, h, "/b/fairview/i/"+it.ID)
@@ -118,6 +120,51 @@ func TestItemPageRendersAndCountsAView(t *testing.T) {
 	}
 	if got.Views != 2 {
 		t.Errorf("Views = %d, want 2", got.Views)
+	}
+}
+
+// TestItemPageDisplaysTakeCountAfterTwoTakes is F2: DESIGN.md §7 says item
+// pages display takes as e.g. "Taken 3 times", and this is the milestone
+// where takes can move. Two sessions each take a copy (copies_total
+// defaults to 3, so the item survives both), and the item's own page must
+// show the count.
+func TestItemPageDisplaysTakeCountAfterTwoTakes(t *testing.T) {
+	ctx := context.Background()
+	st := testStore(t)
+	lib := addLibrary(t, st, "fairview")
+	now := time.Date(2026, time.August, 15, 12, 0, 0, 0, time.UTC)
+	it := shelveOne(t, st, lib, "worth taking", "https://example.org/a", now)
+
+	// One token, reused by both sessions: addAnyToken always mints
+	// period_index 1 and tokens carries a UNIQUE(library_id, period_index)
+	// constraint, so a second call for the same library fails. Nothing
+	// about sessions.token_id requires distinct tokens.
+	tok := addAnyToken(t, st, lib)
+	h := New(st, func() time.Time { return now }).Handler()
+
+	for _, id := range []string{"A", "B"} {
+		sid, err := boulevard.NewSessionID(rand.Reader)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := st.CreateSession(ctx, boulevard.Session{
+			ID: sid, LibraryID: lib.ID, TokenID: tok.ID,
+			CreatedAt: now, ExpiresAt: now.Add(boulevard.SessionTTL),
+		}); err != nil {
+			t.Fatalf("create session %s: %v", id, err)
+		}
+		req := httptest.NewRequest(http.MethodPost, "/b/fairview/i/"+it.ID+"/take", nil)
+		req.AddCookie(&http.Cookie{Name: cookieName, Value: string(sid)})
+		rec := httptest.NewRecorder()
+		h.ServeHTTP(rec, req)
+		if rec.Code != http.StatusSeeOther {
+			t.Fatalf("take by %s: status = %d, want 303", id, rec.Code)
+		}
+	}
+
+	rec := get(t, h, "/b/fairview/i/"+it.ID)
+	if !strings.Contains(rec.Body.String(), "Taken 2 times") {
+		t.Errorf("the item page does not show the take count; body:\n%s", rec.Body.String())
 	}
 }
 
