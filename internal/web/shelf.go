@@ -24,6 +24,12 @@ type pageData struct {
 	StartsOn    string
 	SourceURL   string
 	BuildLine   string
+	HasSession  bool
+	LeaveURL    string
+	Form        boulevard.Submission
+	Errors      boulevard.FieldErrors
+	Items       []boulevard.Item
+	Item        boulevard.Item
 }
 
 // handleRoot redirects to the sole library, or 404s.

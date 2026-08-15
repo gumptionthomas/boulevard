@@ -40,6 +40,23 @@ a.btn {
   p { color: #ded9cc; } p.dim { color: #a9a396; }
   a.btn { color: #fdfcf9; border-color: #fdfcf9; }
 }
+label { display:block; font-size:13px; font-weight:700; margin:20px 0 7px; }
+input, textarea, select {
+  width:100%; box-sizing:border-box; border:1.5px solid #c9c3b2; border-radius:8px;
+  padding:13px; font-size:16px; font-family:inherit; background:#fff; color:#14130d;
+}
+.hint { font-size:12.5px; color:#8a8478; margin:7px 0 0; }
+.err { font-size:13px; color:#8a2b20; margin:7px 0 0; font-weight:600; }
+button {
+  width:100%; margin-top:26px; padding:15px; border:0; border-radius:9px;
+  background:#14130d; color:#fdfcf9; font-size:16px; font-weight:600; font-family:inherit;
+}
+button[disabled] { opacity:.4; }
+@media (prefers-color-scheme: dark) {
+  input, textarea, select { background:#1e1c15; color:#fdfcf9; border-color:#3a372c; }
+  button { background:#fdfcf9; color:#14130d; }
+  .err { color:#e8927f; }
+}
 </style>
 </head>
 <body>

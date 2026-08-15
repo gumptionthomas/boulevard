@@ -1,0 +1,34 @@
+{{define "leave.html"}}{{template "layout" .}}{{end}}
+{{define "body"}}
+{{if .Deadline}}<div class="banner">You're at the box.<span>You can leave or take until {{.Deadline}}.</span></div>{{end}}
+<main>
+  <div class="site">{{.LibraryName}}</div>
+  <h1>Leave something</h1>
+  {{if not .HasSession}}
+    <p class="dim">Scan the code at the box to take or leave something.</p>
+  {{end}}
+  <form method="post" action="{{.LeaveURL}}">
+    <label for="type">What is it?</label>
+    <select id="type" name="type">
+      <option value="link" {{if eq .Form.Type "text"}}{{else}}selected{{end}}>A link</option>
+      <option value="text" {{if eq .Form.Type "text"}}selected{{end}}>Some text</option>
+    </select>
+    {{with .Errors.type}}<p class="err">{{.}}</p>{{end}}
+
+    <label for="payload">The link, or the text</label>
+    <textarea id="payload" name="payload" rows="3">{{.Form.Payload}}</textarea>
+    {{with .Errors.payload}}<p class="err">{{.}}</p>{{end}}
+
+    <label for="note">Why are you leaving it?</label>
+    <textarea id="note" name="note" rows="4">{{.Form.Note}}</textarea>
+    <p class="hint">Required. Everyone who sees this reads it first.</p>
+    {{with .Errors.note}}<p class="err">{{.}}</p>{{end}}
+
+    <label for="attribution">Sign it? — optional</label>
+    <input id="attribution" name="attribution" value="{{.Form.Attribution}}">
+    {{with .Errors.attribution}}<p class="err">{{.}}</p>{{end}}
+
+    <button type="submit" {{if not .HasSession}}disabled{{end}}>Leave it</button>
+  </form>
+</main>
+{{end}}
