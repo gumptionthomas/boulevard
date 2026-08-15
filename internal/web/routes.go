@@ -14,5 +14,5 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /b/{slug}/{$}", s.handleShelf)
 	mux.HandleFunc("GET /b/{slug}/about", s.handleAbout)
 	mux.HandleFunc("GET /s/{token}", s.handleScan)
-	return mux
+	return logRequests(mux)
 }

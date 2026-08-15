@@ -34,10 +34,19 @@ func runServe(args []string) int {
 	}
 	defer st.Close()
 
+	// Every request serializes through one SQLite connection
+	// (SetMaxOpenConns(1), DESIGN.md §2), so a single stalled connection
+	// stalls the whole shelf. The timeouts are what keep a phone that walked
+	// out of cellular range mid-request from holding that connection open.
+	// Generous enough that nothing legitimate here — four small HTML pages —
+	// comes close.
 	srv := &http.Server{
 		Addr:              *addr,
 		Handler:           web.New(st, time.Now).Handler(),
 		ReadHeaderTimeout: 10 * time.Second,
+		ReadTimeout:       15 * time.Second,
+		WriteTimeout:      30 * time.Second,
+		IdleTimeout:       60 * time.Second,
 	}
 
 	fmt.Printf("\n  Boulevard is listening on %s\n  Database: %s\n\n", *addr, *db)
