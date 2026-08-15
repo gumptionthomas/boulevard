@@ -35,11 +35,7 @@ func shelveOne(t *testing.T, st *store.Store, lib boulevard.Library, note, paylo
 	t.Helper()
 	ctx := context.Background()
 	it := leaveOne(t, st, lib, note, payload, now)
-	full, err := st.LibraryBySlug(ctx, lib.Slug)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if _, err := st.ApproveItem(ctx, full, it.ID, now); err != nil {
+	if _, err := st.ApproveItem(ctx, lib.ID, it.ID, now); err != nil {
 		t.Fatal(err)
 	}
 	return it
@@ -162,11 +158,11 @@ func TestItemPageOnlyRendersShelvedItems(t *testing.T) {
 			t.Fatal(err)
 		}
 		first := leaveOne(t, st, lib, "sheddable", "https://example.org/b", now)
-		if _, err := st.ApproveItem(ctx, full, first.ID, now); err != nil {
+		if _, err := st.ApproveItem(ctx, lib.ID, first.ID, now); err != nil {
 			t.Fatal(err)
 		}
 		second := leaveOne(t, st, lib, "shelved instead", "https://example.org/c", now)
-		evicted, err := st.ApproveItem(ctx, full, second.ID, now)
+		evicted, err := st.ApproveItem(ctx, lib.ID, second.ID, now)
 		if err != nil {
 			t.Fatal(err)
 		}

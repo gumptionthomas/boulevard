@@ -106,21 +106,47 @@ func (s *Store) IncrementViews(ctx context.Context, id boulevard.LibraryID, item
 // would grow it past its slots — a shelf that is not finite is not the
 // object DESIGN.md describes.
 //
+// It takes a LibraryID and reads `slots` and `default_copies` here, inside
+// that transaction, rather than taking a caller-supplied Library and
+// trusting its fields. CreateLibrary does not write the settings columns
+// (migration defaults do), so a Library value that never came back from the
+// database carries Slots: 0 — which makes the capacity test below
+// unconditionally true and sheds a live item on an empty shelf. Capacity
+// belongs under the same lock as the count it is compared against.
+//
 // §5's rule is "the oldest non-pinned item". Nothing is pinned in this
 // milestone, so it reduces to the oldest by shelved_at. FIFO is deliberately
 // dumb and deliberately not attention-weighted: letting popular items
 // survive longer would rebuild the ranking this project reacts against.
-func (s *Store) ApproveItem(ctx context.Context, lib boulevard.Library, itemID string, now time.Time) (string, error) {
+//
+// `approve` runs in a separate process from `serve`, so the two can hold
+// this transaction at once. It opens deferred and upgrades to a write lock
+// at the first UPDATE, which is where SQLite can answer SQLITE_BUSY; the
+// busy_timeout pragma absorbs a short overlap, and a longer one surfaces as
+// a failed approval rather than a half-applied one, which is the outcome
+// this transaction exists to guarantee.
+func (s *Store) ApproveItem(ctx context.Context, id boulevard.LibraryID, itemID string, now time.Time) (string, error) {
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
 		return "", fmt.Errorf("begin approve: %w", err)
 	}
 	defer tx.Rollback()
 
+	var slots, defaultCopies int
+	err = tx.QueryRowContext(ctx,
+		`SELECT slots, default_copies FROM libraries WHERE id = ?`, string(id)).
+		Scan(&slots, &defaultCopies)
+	if errors.Is(err, sql.ErrNoRows) {
+		return "", fmt.Errorf("library %q: %w", id, ErrNotFound)
+	}
+	if err != nil {
+		return "", fmt.Errorf("read the shelf settings for %q: %w", id, err)
+	}
+
 	var state string
 	err = tx.QueryRowContext(ctx,
 		`SELECT state FROM items WHERE library_id = ? AND id = ?`,
-		string(lib.ID), itemID).Scan(&state)
+		string(id), itemID).Scan(&state)
 	if errors.Is(err, sql.ErrNoRows) {
 		return "", fmt.Errorf("item %q: %w", itemID, ErrNotFound)
 	}
@@ -128,28 +154,33 @@ func (s *Store) ApproveItem(ctx context.Context, lib boulevard.Library, itemID s
 		return "", fmt.Errorf("look up item %q: %w", itemID, err)
 	}
 	if boulevard.ItemState(state) != boulevard.ItemPending {
-		return "", fmt.Errorf("item %q is %s, not pending", itemID, state)
+		return "", fmt.Errorf("item %q is %s, not pending: %w", itemID, state, ErrNotPending)
 	}
 
 	var shelved int
 	if err := tx.QueryRowContext(ctx,
 		`SELECT COUNT(*) FROM items WHERE library_id = ? AND state = 'shelved'`,
-		string(lib.ID)).Scan(&shelved); err != nil {
+		string(id)).Scan(&shelved); err != nil {
 		return "", fmt.Errorf("count the shelf: %w", err)
 	}
 
 	var evicted string
-	if shelved >= lib.Slots {
+	if shelved >= slots {
+		// `pinned = 0` can match nothing: Milestone 4 allows 3 pins, so a
+		// steward with slots = 3 and three pinned items has a full shelf with
+		// nothing evictable. Today no code sets pinned, so this cannot fire;
+		// when it can, the answer is to refuse the approval with a message
+		// naming the pins, not to evict one.
 		if err := tx.QueryRowContext(ctx,
 			`SELECT id FROM items
 			  WHERE library_id = ? AND state = 'shelved' AND pinned = 0
 			  ORDER BY shelved_at ASC, id ASC LIMIT 1`,
-			string(lib.ID)).Scan(&evicted); err != nil {
+			string(id)).Scan(&evicted); err != nil {
 			return "", fmt.Errorf("find the oldest shelved item: %w", err)
 		}
 		if _, err := tx.ExecContext(ctx,
 			`UPDATE items SET state = 'shed' WHERE library_id = ? AND id = ?`,
-			string(lib.ID), evicted); err != nil {
+			string(id), evicted); err != nil {
 			return "", fmt.Errorf("shed item %q: %w", evicted, err)
 		}
 	}
@@ -158,8 +189,8 @@ func (s *Store) ApproveItem(ctx context.Context, lib boulevard.Library, itemID s
 		`UPDATE items
 		    SET state = 'shelved', shelved_at = ?, copies_total = ?, copies_left = ?
 		  WHERE library_id = ? AND id = ?`,
-		now.UTC().Format(time.RFC3339), lib.DefaultCopies, lib.DefaultCopies,
-		string(lib.ID), itemID); err != nil {
+		now.UTC().Format(time.RFC3339), defaultCopies, defaultCopies,
+		string(id), itemID); err != nil {
 		return "", fmt.Errorf("shelve item %q: %w", itemID, err)
 	}
 
@@ -171,20 +202,39 @@ func (s *Store) ApproveItem(ctx context.Context, lib boulevard.Library, itemID s
 
 // RejectItem releases a pending item. §5 calls release a soft delete: the
 // row stays, so a steward who rejects the wrong thing has not destroyed it.
+//
+// It reads the state first, as ApproveItem does, so that "never existed" and
+// "already handled" are different answers. Inferring them from
+// RowsAffected == 0 could only report one error for both, and the caller
+// needs to tell a mistyped id from a second `reject` on the same item.
 func (s *Store) RejectItem(ctx context.Context, id boulevard.LibraryID, itemID string) error {
-	res, err := s.db.ExecContext(ctx,
-		`UPDATE items SET state = 'released'
-		  WHERE library_id = ? AND id = ? AND state = 'pending'`,
-		string(id), itemID)
+	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
-		return fmt.Errorf("reject item %q: %w", itemID, err)
+		return fmt.Errorf("begin reject: %w", err)
 	}
-	n, err := res.RowsAffected()
+	defer tx.Rollback()
+
+	var state string
+	err = tx.QueryRowContext(ctx,
+		`SELECT state FROM items WHERE library_id = ? AND id = ?`,
+		string(id), itemID).Scan(&state)
+	if errors.Is(err, sql.ErrNoRows) {
+		return fmt.Errorf("item %q: %w", itemID, ErrNotFound)
+	}
 	if err != nil {
-		return fmt.Errorf("reject item %q: %w", itemID, err)
+		return fmt.Errorf("look up item %q: %w", itemID, err)
 	}
-	if n == 0 {
-		return fmt.Errorf("item %q is not pending: %w", itemID, ErrNotFound)
+	if boulevard.ItemState(state) != boulevard.ItemPending {
+		return fmt.Errorf("item %q is %s, not pending: %w", itemID, state, ErrNotPending)
+	}
+
+	if _, err := tx.ExecContext(ctx,
+		`UPDATE items SET state = 'released' WHERE library_id = ? AND id = ?`,
+		string(id), itemID); err != nil {
+		return fmt.Errorf("release item %q: %w", itemID, err)
+	}
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("commit reject: %w", err)
 	}
 	return nil
 }

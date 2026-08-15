@@ -34,6 +34,15 @@ var schema string
 
 var ErrNotFound = errors.New("not found")
 
+// ErrNotPending is a row that exists but has already been decided.
+//
+// Separate from ErrNotFound because the two need different answers: a
+// prefix that names nothing is a typo the steward should retype, while an
+// item that is already shelved or released is a command that has already
+// been run. Both are the steward's mistake rather than the database's, and
+// the CLI reports them as usage errors.
+var ErrNotPending = errors.New("not pending")
+
 // FileMode is what the database and its sidecars are kept at.
 //
 // Token secrets are stored in plaintext (DESIGN.md §4), and a secret IS the

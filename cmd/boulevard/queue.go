@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"flag"
 	"fmt"
 	"os"
@@ -193,16 +194,16 @@ func decide(args []string, verb string) int {
 	if verb == "reject" {
 		if err := s.RejectItem(ctx, lib.ID, it.ID); err != nil {
 			fmt.Fprintf(os.Stderr, "  x  %v\n", err)
-			return exitIO
+			return decideExit(err)
 		}
 		fmt.Printf("\n  Released. The row stays, so nothing is lost.\n\n")
 		return exitOK
 	}
 
-	evicted, err := s.ApproveItem(ctx, lib, it.ID, time.Now())
+	evicted, err := s.ApproveItem(ctx, lib.ID, it.ID, time.Now())
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "  x  %v\n", err)
-		return exitIO
+		return decideExit(err)
 	}
 	fmt.Printf("\n  Shelved.\n")
 	if evicted != "" {
@@ -210,4 +211,17 @@ func decide(args []string, verb string) int {
 	}
 	fmt.Println()
 	return exitOK
+}
+
+// decideExit separates the steward's mistake from the machine's.
+//
+// An id that names nothing, or an item someone already decided, is a
+// usage error: retype it, or accept that it is done. Anything else is the
+// database failing, which is what exitIO means, and a script that retries
+// on one and not the other needs them told apart.
+func decideExit(err error) int {
+	if errors.Is(err, store.ErrNotFound) || errors.Is(err, store.ErrNotPending) {
+		return exitUsage
+	}
+	return exitIO
 }

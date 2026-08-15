@@ -11,25 +11,26 @@ import (
 	"github.com/gumptionthomas/boulevard/internal/boulevard"
 )
 
-// smallShelf creates a library, then narrows its shelf. Settings live in the
-// database, so setting a field on the struct before CreateLibrary has no
-// effect — the column default wins.
+// smallShelf creates a library and narrows its shelf to `slots`.
+//
+// The narrowing is a direct UPDATE of that one column because CreateLibrary
+// does not write the settings columns at all — setting Slots on the struct
+// it is given has no effect, and going through UpdateLibrary would mean
+// reading the whole row back first only to write it out again.
+//
+// The value returned therefore carries Slots: 0, which is exactly the shape
+// that used to be dangerous: ApproveItem reads capacity from the database
+// now, so a Library struct that never came back from it cannot mis-evict.
 func smallShelf(t *testing.T, s *Store, slots int) boulevard.Library {
 	t.Helper()
-	ctx := context.Background()
 	lib := makeLibrary(t)
-	if err := s.CreateLibrary(ctx, lib); err != nil {
+	if err := s.CreateLibrary(context.Background(), lib); err != nil {
 		t.Fatal(err)
 	}
-	stored, err := s.LibraryBySlug(ctx, lib.Slug)
-	if err != nil {
+	if _, err := s.db.Exec(`UPDATE libraries SET slots = ? WHERE id = ?`, slots, string(lib.ID)); err != nil {
 		t.Fatal(err)
 	}
-	stored.Slots = slots
-	if err := s.UpdateLibrary(ctx, stored); err != nil {
-		t.Fatal(err)
-	}
-	return stored
+	return lib
 }
 
 func makeItem(t *testing.T, lib boulevard.Library, note string, left time.Time) boulevard.Item {
@@ -273,7 +274,7 @@ func shelveN(t *testing.T, s *Store, lib boulevard.Library, n int, base time.Tim
 		if err := s.CreateItem(ctx, lib.ID, it); err != nil {
 			t.Fatal(err)
 		}
-		if _, err := s.ApproveItem(ctx, lib, it.ID, base.Add(time.Duration(i)*time.Minute)); err != nil {
+		if _, err := s.ApproveItem(ctx, lib.ID, it.ID, base.Add(time.Duration(i)*time.Minute)); err != nil {
 			t.Fatal(err)
 		}
 		out = append(out, it)
@@ -294,7 +295,7 @@ func TestApproveShelvesWithDefaultCopies(t *testing.T) {
 	if err := s.CreateItem(ctx, lib.ID, it); err != nil {
 		t.Fatal(err)
 	}
-	evicted, err := s.ApproveItem(ctx, lib, it.ID, now)
+	evicted, err := s.ApproveItem(ctx, lib.ID, it.ID, now)
 	if err != nil {
 		t.Fatalf("ApproveItem: %v", err)
 	}
@@ -328,7 +329,7 @@ func TestApproveIntoAFullShelfShedsTheOldest(t *testing.T) {
 	if err := s.CreateItem(ctx, lib.ID, newcomer); err != nil {
 		t.Fatal(err)
 	}
-	evicted, err := s.ApproveItem(ctx, lib, newcomer.ID, base.Add(time.Hour))
+	evicted, err := s.ApproveItem(ctx, lib.ID, newcomer.ID, base.Add(time.Hour))
 	if err != nil {
 		t.Fatalf("ApproveItem: %v", err)
 	}
@@ -360,7 +361,7 @@ func TestApproveIsAtomicWhenEvicting(t *testing.T) {
 	base := time.Date(2026, time.August, 15, 9, 0, 0, 0, time.UTC)
 	shelveN(t, s, lib, 2, base)
 
-	if _, err := s.ApproveItem(ctx, lib, "NOSUCHITEM", base.Add(time.Hour)); err == nil {
+	if _, err := s.ApproveItem(ctx, lib.ID, "NOSUCHITEM", base.Add(time.Hour)); err == nil {
 		t.Fatal("approving a missing item succeeded, want an error")
 	}
 	shelf, err := s.ShelvedItems(ctx, lib.ID)
@@ -384,12 +385,127 @@ func TestApproveRefusesAnItemThatIsNotPending(t *testing.T) {
 	if err := s.CreateItem(ctx, lib.ID, it); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := s.ApproveItem(ctx, lib, it.ID, now); err != nil {
+	if _, err := s.ApproveItem(ctx, lib.ID, it.ID, now); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := s.ApproveItem(ctx, lib, it.ID, now); err == nil {
+	if _, err := s.ApproveItem(ctx, lib.ID, it.ID, now); err == nil {
 		t.Error("approving an already-shelved item succeeded, want an error")
 	}
+}
+
+// TestApproveReadsTheShelfSettingsFromTheDatabase is the regression for a
+// capacity read that used to come from the caller. CreateLibrary does not
+// write the settings columns, so `lib` here carries Slots: 0 and
+// DefaultCopies: 0 — the exact value a caller would have on hand right after
+// creating a library. Trusting it made `shelved >= slots` true on an empty
+// shelf, which sheds a live item and hands back three copies of nothing.
+func TestApproveReadsTheShelfSettingsFromTheDatabase(t *testing.T) {
+	ctx, s := context.Background(), openTemp(t)
+	lib := makeLibrary(t)
+	if err := s.CreateLibrary(ctx, lib); err != nil {
+		t.Fatal(err)
+	}
+	if lib.Slots != 0 || lib.DefaultCopies != 0 {
+		t.Fatalf("the fixture must carry unset settings, got slots %d copies %d", lib.Slots, lib.DefaultCopies)
+	}
+	now := time.Date(2026, time.August, 15, 12, 0, 0, 0, time.UTC)
+
+	first := makeItem(t, lib, "already here", now)
+	if err := s.CreateItem(ctx, lib.ID, first); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.ApproveItem(ctx, lib.ID, first.ID, now); err != nil {
+		t.Fatal(err)
+	}
+	second := makeItem(t, lib, "room for this", now.Add(time.Minute))
+	if err := s.CreateItem(ctx, lib.ID, second); err != nil {
+		t.Fatal(err)
+	}
+	evicted, err := s.ApproveItem(ctx, lib.ID, second.ID, now.Add(time.Minute))
+	if err != nil {
+		t.Fatalf("ApproveItem: %v", err)
+	}
+	if evicted != "" {
+		t.Errorf("evicted %q with ten free slots; capacity must come from the database", evicted)
+	}
+	got, err := s.ItemByID(ctx, lib.ID, first.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.State != boulevard.ItemShelved {
+		t.Errorf("the first item is %q, want it still shelved", got.State)
+	}
+	shelved, err := s.ItemByID(ctx, lib.ID, second.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if shelved.CopiesTotal != 3 || shelved.CopiesLeft != 3 {
+		t.Errorf("copies = %d/%d, want the database's default of 3",
+			shelved.CopiesLeft, shelved.CopiesTotal)
+	}
+}
+
+func TestApproveForAnUnknownLibraryIsErrNotFound(t *testing.T) {
+	ctx, s := context.Background(), openTemp(t)
+	if _, err := s.ApproveItem(ctx, boulevard.LibraryID("NOPE"), "NOSUCHITEM", time.Now()); !errors.Is(err, ErrNotFound) {
+		t.Errorf("err = %v, want ErrNotFound", err)
+	}
+}
+
+// TestApproveAndRejectDistinguishMissingFromDecided keeps the two errors
+// apart. RejectItem could not tell them apart at all while it inferred the
+// outcome from RowsAffected == 0, so a mistyped id and a second `reject` on
+// the same item read identically.
+func TestApproveAndRejectDistinguishMissingFromDecided(t *testing.T) {
+	ctx, s := context.Background(), openTemp(t)
+	lib := makeLibrary(t)
+	if err := s.CreateLibrary(ctx, lib); err != nil {
+		t.Fatal(err)
+	}
+	now := time.Date(2026, time.August, 15, 12, 0, 0, 0, time.UTC)
+
+	shelved := makeItem(t, lib, "already decided", now)
+	if err := s.CreateItem(ctx, lib.ID, shelved); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.ApproveItem(ctx, lib.ID, shelved.ID, now); err != nil {
+		t.Fatal(err)
+	}
+
+	for _, tc := range []struct {
+		name   string
+		err    error
+		want   error
+		unwant error
+	}{
+		{"approve a missing item", approveErr(s, lib, "NOSUCHITEM", now), ErrNotFound, ErrNotPending},
+		{"approve a decided item", approveErr(s, lib, shelved.ID, now), ErrNotPending, ErrNotFound},
+		{"reject a missing item", s.RejectItem(ctx, lib.ID, "NOSUCHITEM"), ErrNotFound, ErrNotPending},
+		{"reject a decided item", s.RejectItem(ctx, lib.ID, shelved.ID), ErrNotPending, ErrNotFound},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			if !errors.Is(tc.err, tc.want) {
+				t.Errorf("err = %v, want %v", tc.err, tc.want)
+			}
+			if errors.Is(tc.err, tc.unwant) {
+				t.Errorf("err = %v, which also reads as %v; the two must be distinguishable", tc.err, tc.unwant)
+			}
+		})
+	}
+
+	// The failed reject must not have touched it.
+	got, err := s.ItemByID(ctx, lib.ID, shelved.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.State != boulevard.ItemShelved {
+		t.Errorf("state = %q, want it still shelved", got.State)
+	}
+}
+
+func approveErr(s *Store, lib boulevard.Library, itemID string, now time.Time) error {
+	_, err := s.ApproveItem(context.Background(), lib.ID, itemID, now)
+	return err
 }
 
 func TestRejectReleasesWithoutDeleting(t *testing.T) {

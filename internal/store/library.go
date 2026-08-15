@@ -10,6 +10,15 @@ import (
 	"github.com/gumptionthomas/boulevard/internal/boulevard"
 )
 
+// CreateLibrary inserts a library.
+//
+// It deliberately does NOT write the five §3 settings columns — slots,
+// max_age_days, default_copies, approval_required and steward_contact.
+// Migration 2's column defaults supply them, which is what keeps DESIGN.md
+// §3's numbers in one place. The consequence matters to callers: setting
+// Slots or DefaultCopies on the struct passed here has no effect, and the
+// value handed back by LibraryBySlug or LibraryByID is the only one that
+// reflects the database. Read it back rather than reusing what you passed.
 func (s *Store) CreateLibrary(ctx context.Context, lib boulevard.Library) error {
 	_, err := s.db.ExecContext(ctx,
 		`INSERT INTO libraries (id, slug, name, location_label, base_url, created_at)
