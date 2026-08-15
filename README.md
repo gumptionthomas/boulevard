@@ -11,21 +11,19 @@ Libraries stand.
 
 ## Status
 
-Milestone 0 — the booklet generator. No server yet.
+Milestone 1 — presence. The booklet generator plus the first HTTP server.
 
     boulevard booklet --name "The Fairview Boulevard" \
                       --location "4th & Fairview, Minneapolis" \
                       --base-url https://boulevard.example.org
+    boulevard serve --addr :8080
 
-This writes `boulevard.db` and a printable `boulevard-booklet.pdf`: twelve
-tear-off monthly cards, a permanent browse sign, and a cover sheet.
+`booklet` writes `boulevard.db` and a printable `boulevard-booklet.pdf`.
+`serve` puts the shelf on the web: scanning a card grants a 24-hour session,
+and the page tells you so. The shelf itself holds no items yet — that is
+Milestone 2.
 
-Re-running reprints the *same* cards rather than minting new ones — the
-library is looked up by its slug, which is derived from `--name`, so the run
-says which library it is about to touch before it touches it.
-
-Both files are written owner-readable only: the database holds every token
-secret in plaintext, and every card in the PDF carries one in its QR.
+Re-running `booklet` reprints the *same* cards rather than minting new ones.
 
 ## Building
 

@@ -132,7 +132,7 @@ tokens
 2. `state == revoked` → generic failure page.
 3. Today within `[valid_from - grace, valid_until + grace]`, grace = **7 days**. The grace window is what makes a human-swapped paper card work.
 4. Outside the window but token is otherwise valid → show a "this card is out of date, the steward needs to swap it" page. Distinct from failure; it is diagnostic information the steward needs.
-5. On first valid scan, set `first_seen_at` and mark `active`. Expire any earlier `active` token.
+5. On first valid scan, set `first_seen_at`. Mark the token `active` **only if its period is later than the current active token's**, expiring the previous active token when it is. A token older than the current active one still grants a session and still records `first_seen_at`, but does not become active — otherwise a stray card found in a drawer could rewind the steward's sense of which card is in the door.
 
 **Steward overrides:** force-activate any pending card (swapped early), extend the current card (booklet lost, replacement not printed yet), revoke a card (sheet stolen or photographed).
 
@@ -157,7 +157,7 @@ The mounted sign carries that line. **The monthly card says "Scan to leave or ta
 
 ### Session mechanics
 
-A valid scan sets an `HttpOnly`, `SameSite=Lax`, 24-hour cookie carrying a signed random session id. Server-side session row records which token minted it.
+A valid scan sets an `HttpOnly`, `SameSite=Lax`, 24-hour cookie carrying an opaque random session id. A server-side session row records which token minted it, and that row is the source of truth — the id is not signed, because the lookup already rejects anything never issued and a signing key would add something to store, rotate and lose while defending against nothing. It would also break §10's promise that ejecting a library is a file copy.
 
 **The 24-hour window is intentional.** Nobody wants to compose a thoughtful note standing outside a box in the rain. Scan on your walk, write at your kitchen table. The physical act stays mandatory; the typing does not.
 
