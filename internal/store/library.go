@@ -23,19 +23,10 @@ func (s *Store) CreateLibrary(ctx context.Context, lib boulevard.Library) error 
 }
 
 func (s *Store) LibraryBySlug(ctx context.Context, slug string) (boulevard.Library, error) {
-	var lib boulevard.Library
-	var id string
-	err := s.db.QueryRowContext(ctx,
-		`SELECT id, slug, name, location_label, base_url FROM libraries WHERE slug = ?`, slug).
-		Scan(&id, &lib.Slug, &lib.Name, &lib.LocationLabel, &lib.BaseURL)
-	if errors.Is(err, sql.ErrNoRows) {
-		return boulevard.Library{}, fmt.Errorf("library %q: %w", slug, ErrNotFound)
-	}
-	if err != nil {
-		return boulevard.Library{}, fmt.Errorf("look up library %q: %w", slug, err)
-	}
-	lib.ID = boulevard.LibraryID(id)
-	return lib, nil
+	return s.scanLibrary(s.db.QueryRowContext(ctx,
+		`SELECT id, slug, name, location_label, base_url,
+		        slots, max_age_days, default_copies, approval_required, steward_contact
+		   FROM libraries WHERE slug = ?`, slug), slug)
 }
 
 // LibrarySlugs lists every library slug in the database, ordered.
@@ -68,8 +59,13 @@ func (s *Store) LibrarySlugs(ctx context.Context) ([]string, error) {
 // never changes — printed artifacts and copied database files depend on it.
 func (s *Store) UpdateLibrary(ctx context.Context, lib boulevard.Library) error {
 	res, err := s.db.ExecContext(ctx,
-		`UPDATE libraries SET slug = ?, name = ?, location_label = ?, base_url = ? WHERE id = ?`,
-		lib.Slug, lib.Name, lib.LocationLabel, lib.BaseURL, string(lib.ID))
+		`UPDATE libraries SET slug = ?, name = ?, location_label = ?, base_url = ?,
+		        slots = ?, max_age_days = ?, default_copies = ?,
+		        approval_required = ?, steward_contact = ?
+		   WHERE id = ?`,
+		lib.Slug, lib.Name, lib.LocationLabel, lib.BaseURL,
+		lib.Slots, lib.MaxAgeDays, lib.DefaultCopies,
+		boolToInt(lib.ApprovalRequired), lib.StewardContact, string(lib.ID))
 	if err != nil {
 		return fmt.Errorf("update library %q: %w", lib.ID, err)
 	}
@@ -85,17 +81,35 @@ func (s *Store) UpdateLibrary(ctx context.Context, lib boulevard.Library) error 
 
 // LibraryByID loads a library by its stable identifier.
 func (s *Store) LibraryByID(ctx context.Context, id boulevard.LibraryID) (boulevard.Library, error) {
+	return s.scanLibrary(s.db.QueryRowContext(ctx,
+		`SELECT id, slug, name, location_label, base_url,
+		        slots, max_age_days, default_copies, approval_required, steward_contact
+		   FROM libraries WHERE id = ?`, string(id)), string(id))
+}
+
+// scanLibrary is shared so the column list and the scan list cannot drift
+// apart — a transposition between two adjacent TEXT columns compiles fine
+// and produces a plausible, wrong library.
+func (s *Store) scanLibrary(row *sql.Row, what string) (boulevard.Library, error) {
 	var lib boulevard.Library
-	var got string
-	err := s.db.QueryRowContext(ctx,
-		`SELECT id, slug, name, location_label, base_url FROM libraries WHERE id = ?`, string(id)).
-		Scan(&got, &lib.Slug, &lib.Name, &lib.LocationLabel, &lib.BaseURL)
+	var id string
+	var approval int
+	err := row.Scan(&id, &lib.Slug, &lib.Name, &lib.LocationLabel, &lib.BaseURL,
+		&lib.Slots, &lib.MaxAgeDays, &lib.DefaultCopies, &approval, &lib.StewardContact)
 	if errors.Is(err, sql.ErrNoRows) {
-		return boulevard.Library{}, fmt.Errorf("library %q: %w", id, ErrNotFound)
+		return boulevard.Library{}, fmt.Errorf("library %q: %w", what, ErrNotFound)
 	}
 	if err != nil {
-		return boulevard.Library{}, fmt.Errorf("look up library %q: %w", id, err)
+		return boulevard.Library{}, fmt.Errorf("look up library %q: %w", what, err)
 	}
-	lib.ID = boulevard.LibraryID(got)
+	lib.ID = boulevard.LibraryID(id)
+	lib.ApprovalRequired = approval == 1
 	return lib, nil
+}
+
+func boolToInt(b bool) int {
+	if b {
+		return 1
+	}
+	return 0
 }

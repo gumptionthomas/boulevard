@@ -46,8 +46,28 @@ type Store struct {
 	db *sql.DB
 }
 
-// Open opens or creates the database and applies the schema.
+// Open opens or creates the database and applies pending migrations.
 func Open(path string) (*Store, error) {
+	db, err := openRaw(path)
+	if err != nil {
+		return nil, err
+	}
+	if err := migrate(db); err != nil {
+		db.Close()
+		return nil, fmt.Errorf("migrate database %q: %w", path, err)
+	}
+	// After migrating, so the WAL and shared-memory sidecars exist and get
+	// restricted too: they hold the same secrets as the database proper.
+	if err := restrict(path); err != nil {
+		db.Close()
+		return nil, err
+	}
+	return &Store{db: db}, nil
+}
+
+// openRaw opens the database with this package's pragmas but applies no
+// migrations. Tests use it to build a database as an earlier version left it.
+func openRaw(path string) (*sql.DB, error) {
 	dsn := path + "?_pragma=busy_timeout(5000)&_pragma=foreign_keys(1)&_pragma=journal_mode(WAL)"
 	db, err := sql.Open("sqlite", dsn)
 	if err != nil {
@@ -61,17 +81,7 @@ func Open(path string) (*Store, error) {
 		db.Close()
 		return nil, fmt.Errorf("connect to database %q: %w", path, err)
 	}
-	if _, err := db.Exec(schema); err != nil {
-		db.Close()
-		return nil, fmt.Errorf("apply schema: %w", err)
-	}
-	// After the schema, so the WAL and shared-memory sidecars exist and get
-	// restricted too: they hold the same secrets as the database proper.
-	if err := restrict(path); err != nil {
-		db.Close()
-		return nil, err
-	}
-	return &Store{db: db}, nil
+	return db, nil
 }
 
 // restrict narrows the database and its sidecars to owner-only. A failure

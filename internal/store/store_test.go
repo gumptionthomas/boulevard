@@ -48,6 +48,9 @@ func TestLibraryRoundTrip(t *testing.T) {
 	if err != nil {
 		t.Fatalf("LibraryBySlug: %v", err)
 	}
+	// CreateLibrary does not write the §3 settings; migration 2's column
+	// defaults supply them. See TestMigrateDefaultsMatchDesign.
+	lib.Slots, lib.MaxAgeDays, lib.DefaultCopies, lib.ApprovalRequired = 12, 90, 3, true
 	if got != lib {
 		t.Errorf("round trip = %+v, want %+v", got, lib)
 	}
@@ -372,6 +375,9 @@ func TestLibraryByID(t *testing.T) {
 	if err != nil {
 		t.Fatalf("LibraryByID: %v", err)
 	}
+	// CreateLibrary does not write the §3 settings; migration 2's column
+	// defaults supply them. See TestMigrateDefaultsMatchDesign.
+	lib.Slots, lib.MaxAgeDays, lib.DefaultCopies, lib.ApprovalRequired = 12, 90, 3, true
 	if got != lib {
 		t.Errorf("got %+v, want %+v", got, lib)
 	}
