@@ -47,7 +47,7 @@ Consequences, understood and accepted:
 - **Commercial use is permitted.** Anyone may sell Boulevard hosting. They simply cannot do it on a closed fork, and stewards retain their exit rights (§10).
 - **No CLA.** Contributors keep their copyright, which makes relicensing practically impossible later. Chosen deliberately: a CLA on a neighborhood project signals future commercialization and adds friction to first-time contributors. AGPL is therefore permanent.
 - **Dependency licenses must be AGPLv3-compatible.** MIT, BSD, and Apache-2.0 are fine. Avoid GPLv2-only dependencies.
-- **The name is not covered by the license.** Trademark and identity are separate; see §13.
+- **The name is not covered by the license.** Trademark and identity are separate; see §14.
 
 **Compliance by construction.** Hosts are neighbors, not lawyers, and AGPL places the source-offer obligation on whoever runs a modified version. Build compliance in so that a host who never thinks about licensing is compliant regardless:
 
@@ -365,13 +365,70 @@ A map sends you to a place. A feed brings the places to you. Only the first is c
 
 ---
 
-## 11. Later
+## 11. Pop-up boulevards — deferred, but not retrofittable
+
+A Boulevard does not need a permanent box. A farmers market stall, a block party, a conference hallway, a gallery opening, a family reunion, a memorial — any bounded place that exists for hours or days can carry a shelf.
+
+The thesis holds unchanged: consumption global, mutation local. What changes is that the *place itself* is temporary, and that has a consequence the standing case does not have.
+
+### The sealed artifact
+
+When the last period ends, the shelf goes **read-only, permanently.** Presence was required to write; the place no longer exists; nobody can ever add to it again. Read stays global and permanent.
+
+What remains is a small bounded record of what specific people left while standing in one specific place on one specific afternoon — frozen at the moment the place stopped existing. This falls out of the existing architecture for free, and it is the reason the pop-up case is worth building rather than a novelty.
+
+A sealed shelf says so plainly, in the same register as the empty state (§6):
+
+> This Boulevard was open at the Kingfield market, June 14. It's closed now.
+
+That line is what makes an expired pop-up read as *finished* rather than broken.
+
+### What differs from a standing boulevard
+
+| | Standing | Pop-up |
+|---|---|---|
+| Period length | Calendar months | Hours or days |
+| Codes | Two (permanent browse + rotating) | One. Permanence is not the point. |
+| Expiry (`max_age_days`) | On | Off. Nothing outlives the event anyway. |
+| Eviction at capacity | FIFO to the shed | **None.** The shelf fills and says so. |
+| Take | Decrements copies; item leaves at zero | Counter only. Nothing is removed. |
+| The shed | Active | Unused |
+| Approval queue | Default on | Default off |
+| Printed artifact | 12-card booklet | One card |
+| End state | Ongoing | Sealed, read-only, forever |
+
+**Why eviction and copy-decrement are off.** In the standing case, both exist to keep a living shelf fresh. In the pop-up case the shelf *is* the record, and either mechanic would quietly delete parts of it before sealing. A pop-up shelf that reaches capacity is full, and "full" is a legitimate end state for a bounded event.
+
+**Why approval defaults off.** Nobody moderates a queue during their own wedding. Physical presence at a private or ticketed event is already a strong filter. The host may still turn approval on, and should for anything public-facing like a market stall.
+
+### v1 obligation
+
+One thing only: **do not bake "month" into the period type.** Periods are already stored as explicit `valid_from` / `valid_until` values rather than derived from a clock function (§4), so the scheme supports arbitrary lengths. Keep it that way, and never assume a period boundary falls on the first of a month.
+
+**What v1 does not yet satisfy, recorded so it is not mistaken for done:** those columns hold calendar dates, and `boulevard.Date` is deliberately a bare date with no time and no timezone (§4). That is correct for month-long periods and cannot express a stall that opens at nine and closes at two. Hour-scale pop-ups therefore need a `Date` → timestamp widening — a migration and a change to validation's day-boundary comparisons, but not a redesign, because the boundaries are already explicit stored data rather than a function of the clock. That is the whole point of the obligation above.
+
+Everything else is additive and can wait.
+
+### Later additions
+
+- `mode` on the library: `standing` (default) or `popup`
+- `sealed_at` timestamp; all mutation routes refuse once set
+- `boulevard booklet --popup --opens ... --closes ...` emitting a single card rather than twelve
+- A `--format` flag on card generation: `yard`, `counter`, `card`, `tent`. The sign layout is the same at every size; only the trim differs.
+
+### Open
+
+Whether a sealed pop-up should be exportable as a keepsake — a single PDF of the shelf, for the host to send round afterward. Appealing, and a natural fit for a reunion or a memorial. Out of scope until the base case works.
+
+---
+
+## 12. Later
 
 Slideshows · richer text · neighbor directory · import from export file
 
 ---
 
-## 12. Build order
+## 13. Build order
 
 **Milestone 0 — the booklet generator.** Before any media handling, before the shelf, before storage: the standalone `boulevard booklet` command (§8). Twelve time-gated tokens, base URL verification, and a printable PDF. No server, no items, no database beyond what the tokens need.
 
@@ -393,7 +450,7 @@ This is the smallest artifact that proves the whole model. If it feels awkward, 
 
 ---
 
-## 13. Open
+## 14. Open
 
 - Name: "Boulevard" is a working name, common as a word, and shares it with a well-known brewery. No category conflict for an open-source project, but SEO will be a fight and the wordmark must do some work. Not covered by the license (§2).
 - Contact Little Free Library, St. Paul. Lead with proximity, ask for fifteen minutes, not for a name.
