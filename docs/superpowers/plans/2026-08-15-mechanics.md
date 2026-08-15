@@ -2133,16 +2133,39 @@ and add all three to the usage text.
 
 - [ ] **Step 2: Write the failing tests**
 
-In `cmd/boulevard/shed_test.go`, following the shape of `queue_cli_test.go`:
+In `cmd/boulevard/shed_test.go`. These use the helpers `cmd/boulevard` already has — verified present, do not write new ones:
+
+| Helper | Signature | Where |
+|---|---|---|
+| `cliStore` | `(t, slugs ...string) (string, *store.Store, []boulevard.Library)` | `queue_cli_test.go:23` |
+| `leavePending` | `(t, *store.Store, boulevard.Library, id, note string, left time.Time) boulevard.Item` | `queue_cli_test.go:56` |
+| `stateOfItem` | `(t, *store.Store, boulevard.Library, itemID string) boulevard.ItemState` | `queue_cli_test.go:69` |
+| `captureStdout` | `(t, fn func()) string` | `booklet_test.go:491` |
+| `exitOK` | `= 0` | `main.go:10` |
+
+Commands are called directly and return an exit code — `runShed([]string{"--db", path})` — with output captured by `captureStdout`. There is no `runCLI` wrapper; do not invent one.
+
+No existing helper puts an item in the shed, so this file needs its own. **`store.Store` does not export its `*sql.DB`**, and these tests live in `package main`, not `package store` — so unlike the store's own tests they cannot reach the database directly. Do not add an exported accessor to make them able to; a test-only hole in the store's encapsulation is a worse thing to own than a slightly longer fixture.
+
+Build the fixture from exported store methods only: `leavePending` → `ApproveItem` → `SweepExpiredItems` with a clock well past `max_age_days` produces a shed item with reason `expired`, which is what these CLI tests need. If some case turns out to be unreachable that way, say so in your report rather than working around the encapsulation.
+
+The four tests:
 
 ```go
 func TestShedListsReasonsAndSanitizesNotes(t *testing.T) {
-	db := shedFixture(t, "\x1b[1A\x1b[2Kforged entry")
+	path, s, libs := cliStore(t, "fairview")
+	lib := libs[0]
+	// A note that would erase the line above it and draw a forged entry.
+	shedOne(t, s, lib, "A7F3ZZZZZZZZZZZZZZZZZZZZZZ", "\x1b[1A\x1b[2Kforged entry")
 
-	out := runCLI(t, "shed", "--db", db)
+	out := captureStdout(t, func() {
+		if code := runShed([]string{"--db", path}); code != exitOK {
+			t.Errorf("shed exit = %d, want %d", code, exitOK)
+		}
+	})
 
 	if !strings.Contains(out, "expired") {
-		t.Error("the listing does not name why the item shed")
+		t.Errorf("the listing does not name why the item shed: %q", out)
 	}
 	if strings.Contains(out, "\x1b") {
 		t.Fatal("an escape sequence reached the terminal — Sanitize is not applied")
@@ -2150,43 +2173,56 @@ func TestShedListsReasonsAndSanitizesNotes(t *testing.T) {
 }
 
 func TestReshelveOntoAFullShelfRefusesAndNamesWhy(t *testing.T) {
-	db := fullShelfWithOneShedItem(t)
+	path, s, libs := cliStore(t, "fairview")
+	lib := libs[0]
+	it := fullShelfWithOneShedItem(t, s, lib)
 
-	out, code := runCLIWithCode(t, "reshelve", "--db", db, "shed")
-
-	if code == 0 {
-		t.Fatal("reshelve onto a full shelf succeeded")
-	}
+	out := captureStdout(t, func() {
+		if code := runReshelve([]string{"--db", path, it.ID[:4]}); code == exitOK {
+			t.Error("reshelve onto a full shelf succeeded")
+		}
+	})
 	if !strings.Contains(out, "full") {
 		t.Errorf("the refusal does not say the shelf is full: %q", out)
 	}
 }
 
 func TestReleaseFromTheShedSaysReleased(t *testing.T) {
-	db := shedFixture(t, "a note")
+	path, s, libs := cliStore(t, "fairview")
+	lib := libs[0]
+	it := shedOne(t, s, lib, "A7F3ZZZZZZZZZZZZZZZZZZZZZZ", "a note")
 
-	out := runCLI(t, "release", "--db", db, "shed")
-
+	out := captureStdout(t, func() {
+		if code := runRelease([]string{"--db", path, it.ID[:4]}); code != exitOK {
+			t.Errorf("release exit = %d, want %d", code, exitOK)
+		}
+	})
 	if !strings.Contains(out, "Released.") {
 		t.Errorf("output = %q, want it to say Released.", out)
 	}
+	if got := stateOfItem(t, s, lib, it.ID); got != boulevard.ItemReleased {
+		t.Errorf("state = %q, want released", got)
+	}
 }
 
-func TestAmbiguousPrefixRefusesAndNamesCandidates(t *testing.T) {
-	db := twoShedItemsSharingAPrefix(t)
+func TestShedPrefixRefusesAnAmbiguousMatch(t *testing.T) {
+	path, s, libs := cliStore(t, "fairview")
+	lib := libs[0]
+	shedOne(t, s, lib, "AAAA1ZZZZZZZZZZZZZZZZZZZZZ", "first")
+	shedOne(t, s, lib, "AAAA2ZZZZZZZZZZZZZZZZZZZZZ", "second")
 
-	out, code := runCLIWithCode(t, "reshelve", "--db", db, "a")
-
-	if code == 0 {
-		t.Fatal("an ambiguous prefix was resolved rather than refused")
-	}
-	if !strings.Contains(out, "matches") {
-		t.Errorf("the refusal does not name the candidates: %q", out)
+	out := captureStdout(t, func() {
+		if code := runReshelve([]string{"--db", path, "AAAA"}); code == exitOK {
+			t.Error("an ambiguous prefix was resolved rather than refused")
+		}
+	})
+	if !strings.Contains(out, "AAAA1") || !strings.Contains(out, "AAAA2") {
+		t.Errorf("the refusal does not name both candidates: %q", out)
 	}
 }
 ```
 
-Build the fixtures with the same helpers `queue_cli_test.go` uses; reuse rather than duplicate them.
+Write `shedOne` and `fullShelfWithOneShedItem` yourself in this file, using only exported store methods and the existing helpers above. `shedOne` should produce a shed item whose reason is `expired`; the cleanest route is `leavePending` → `ApproveItem` → `SweepExpiredItems` with a clock well past `max_age_days`.
 
 - [ ] **Step 3: Run them and watch them fail**
 
