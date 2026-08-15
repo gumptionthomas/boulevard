@@ -6,10 +6,17 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/gumptionthomas/boulevard/internal/boulevard"
 )
 
+// chicago is a fixed -05:00 zone standing in for the server's local time.
+// A fixed zone rather than time.LoadLocation so the test does not depend on
+// a tzdata database being installed.
+var chicago = time.FixedZone("CDT", -5*60*60)
+
 func TestHumanDeadline(t *testing.T) {
-	now := time.Date(2026, time.September, 3, 16, 12, 0, 0, time.UTC)
+	now := time.Date(2026, time.September, 3, 16, 12, 0, 0, chicago)
 	tests := []struct {
 		name    string
 		expires time.Time
@@ -17,13 +24,79 @@ func TestHumanDeadline(t *testing.T) {
 	}{
 		{"same time tomorrow", now.Add(24 * time.Hour), "4:12 PM tomorrow"},
 		{"later today", now.Add(3 * time.Hour), "7:12 PM today"},
-		{"morning tomorrow", time.Date(2026, time.September, 4, 9, 5, 0, 0, time.UTC), "9:05 AM tomorrow"},
+		{"morning tomorrow", time.Date(2026, time.September, 4, 9, 5, 0, 0, chicago), "9:05 AM tomorrow"},
 		{"further out falls back to a date", now.Add(72 * time.Hour), "4:12 PM on 6 September"},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			if got := humanDeadline(tc.expires, now); got != tc.want {
 				t.Errorf("humanDeadline(%v, %v) = %q, want %q", tc.expires, now, got, tc.want)
+			}
+		})
+	}
+}
+
+// TestHumanDeadlineRendersInTheClockZone pins the shape the store actually
+// produces: expires comes back from SQLite in UTC (RFC3339 written as UTC,
+// time.Parse returns UTC), while `now` is the server's local zone. Formatting
+// the UTC value directly named a UTC clock time and, for an evening scan in
+// a western zone, a UTC calendar day two days from today — which fell out of
+// the "tomorrow" branch entirely. A test with UTC on both sides cannot see
+// any of that.
+func TestHumanDeadlineRendersInTheClockZone(t *testing.T) {
+	tests := []struct {
+		name    string
+		now     time.Time
+		expires time.Time
+		want    string
+	}{
+		{
+			// 14 Aug 2026 20:25 CDT + 24h. In UTC the deadline is
+			// 16 Aug 01:25, two calendar days after 14 Aug local.
+			name:    "evening scan stays tomorrow",
+			now:     time.Date(2026, time.August, 14, 20, 25, 17, 0, chicago),
+			expires: time.Date(2026, time.August, 16, 1, 25, 17, 0, time.UTC),
+			want:    "8:25 PM tomorrow",
+		},
+		{
+			name:    "morning scan stays today",
+			now:     time.Date(2026, time.August, 14, 6, 0, 0, 0, chicago),
+			expires: time.Date(2026, time.August, 14, 20, 0, 0, 0, time.UTC),
+			want:    "3:00 PM today",
+		},
+		{
+			// The old sameYear guard dropped a genuine "tomorrow" into
+			// the date fallback across the new year.
+			name:    "new year's eve is still tomorrow",
+			now:     time.Date(2026, time.December, 31, 18, 0, 0, 0, chicago),
+			expires: time.Date(2027, time.January, 1, 23, 0, 0, 0, time.UTC),
+			want:    "6:00 PM tomorrow",
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := humanDeadline(tc.expires, tc.now); got != tc.want {
+				t.Errorf("humanDeadline(%v, %v) = %q, want %q", tc.expires, tc.now, got, tc.want)
+			}
+		})
+	}
+}
+
+func TestHumanDate(t *testing.T) {
+	today := boulevard.NewDate(2026, time.August, 14)
+	tests := []struct {
+		name string
+		d    boulevard.Date
+		want string
+	}{
+		{"this year omits it", boulevard.NewDate(2026, time.September, 7), "7 September"},
+		{"another year names it", boulevard.NewDate(2027, time.June, 24), "24 June 2027"},
+		{"a past year names it too", boulevard.NewDate(2025, time.December, 3), "3 December 2025"},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := humanDate(tc.d, today); got != tc.want {
+				t.Errorf("humanDate(%v, %v) = %q, want %q", tc.d, today, got, tc.want)
 			}
 		})
 	}

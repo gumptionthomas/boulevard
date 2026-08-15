@@ -128,7 +128,11 @@ func TestShelfWithSessionShowsTheBanner(t *testing.T) {
 	st := testStore(t)
 	lib := addLibrary(t, st, "fairview")
 	addToken(t, st, lib, "TOK1")
-	now := time.Date(2026, time.September, 3, 16, 12, 0, 0, time.UTC)
+	// A non-UTC clock on purpose. The store round-trips expires_at through
+	// RFC3339 in UTC, so the banner formats a UTC value against a local
+	// `now`; pinning UTC on both sides of that comparison is exactly how a
+	// timezone-skewed deadline passed its tests.
+	now := time.Date(2026, time.September, 3, 16, 12, 0, 0, chicago)
 
 	sid, err := boulevard.NewSessionID(rand.Reader)
 	if err != nil {

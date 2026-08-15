@@ -60,7 +60,7 @@ func (s *Server) renderOutOfWindow(w http.ResponseWriter, r *http.Request, tok b
 		LibraryName: lib.Name,
 		Location:    lib.LocationLabel,
 		CardLabel:   tok.ValidFrom.MonthName() + " " + strconv.Itoa(tok.ValidFrom.Year),
-		StoppedOn:   humanDate(tok.ValidUntil.AddDays(tokens.GraceDays)),
+		StoppedOn:   humanDate(tok.ValidUntil.AddDays(tokens.GraceDays), boulevard.DateFromTime(now)),
 		ShelfURL:    "/b/" + lib.Slug + "/",
 	})
 }

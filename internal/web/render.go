@@ -42,22 +42,45 @@ func (s *Server) render(w http.ResponseWriter, status int, name string, data any
 // reader actually has: do I write the note now, or at the kitchen table?
 // It renders in the server's local timezone — see spec §10.2 for why the
 // alternatives are worse.
+//
+// `expires` arrives in UTC, because the store writes RFC3339 in UTC and
+// time.Parse hands the value back in UTC. Both Format and the calendar
+// fields below read the *value's own* location, so formatting it as it
+// arrives names a UTC clock time and a UTC calendar day while `now` is
+// local — which pushed an evening scan in a western zone a whole day out
+// and dropped it into the date fallback. Converting into now's location
+// first is the fix, and it belongs here at the presentation boundary: the
+// stored instant is correct, only its rendering was not.
+//
+// The day comparison is on calendar dates rather than YearDay, so that a
+// deadline crossing 31 December still reads "tomorrow".
 func humanDeadline(expires, now time.Time) string {
-	clock := expires.Format("3:04 PM")
-	nowDay := now.YearDay()
-	sameYear := expires.Year() == now.Year()
+	local := expires.In(now.Location())
+	clock := local.Format("3:04 PM")
+
+	ly, lm, ld := local.Date()
+	ny, nm, nd := now.Date()
+	ty, tm, td := now.AddDate(0, 0, 1).Date()
 
 	switch {
-	case sameYear && expires.YearDay() == nowDay:
+	case ly == ny && lm == nm && ld == nd:
 		return clock + " today"
-	case sameYear && expires.YearDay() == nowDay+1:
+	case ly == ty && lm == tm && ld == td:
 		return clock + " tomorrow"
 	default:
-		return fmt.Sprintf("%s on %d %s", clock, expires.Day(), expires.Month())
+		return fmt.Sprintf("%s on %d %s", clock, ld, lm)
 	}
 }
 
-// humanDate renders "7 September" for the out-of-date page.
-func humanDate(d boulevard.Date) string {
+// humanDate renders "7 September" for the card pages, adding the year when
+// the date falls in a different calendar year than today.
+//
+// The year is not decoration in that case: a booklet's twelfth card is
+// nearly a year out, and "7 August" on a card that starts working in 2027
+// reads as a date that has already passed.
+func humanDate(d, today boulevard.Date) string {
+	if d.Year != today.Year {
+		return fmt.Sprintf("%d %s %d", d.Day, d.Month, d.Year)
+	}
 	return fmt.Sprintf("%d %s", d.Day, d.Month)
 }
