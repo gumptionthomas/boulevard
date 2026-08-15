@@ -9,7 +9,18 @@
     <p class="itemtext">{{.Item.Payload}}</p>
   {{end}}
   {{template "takecontrol" .Item}}
-  <p class="dim">Taken {{.Item.Takes}} times</p>
+  {{/* A count worth stating, not a mandate to print a zero (DESIGN.md §7's
+       "Taken 3 times" is an example of the former): a brand-new item has
+       Takes == 0, and a shelf where every untaken item reads "Taken 0
+       times" is worse than showing nothing, which is why Milestone 2
+       deferred this line in the first place. Singular gets its own case
+       rather than falling through to "Taken 1 times". */}}
+  {{if eq .Item.Takes 0}}
+  {{else if eq .Item.Takes 1}}
+    <p class="dim">Taken once</p>
+  {{else}}
+    <p class="dim">Taken {{.Item.Takes}} times</p>
+  {{end}}
   {{if .Item.Attribution}}<p class="dim">left by {{.Item.Attribution}}</p>{{end}}
   {{if not .HasSession}}<p class="dim">Scan the code at the box to take or leave something.</p>{{end}}
   <a class="btn" href="{{.ShelfURL}}">Back to the shelf</a>
