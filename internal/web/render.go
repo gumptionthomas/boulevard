@@ -1,21 +1,37 @@
 package web
 
 import (
+	"bytes"
 	"fmt"
 	"log"
 	"net/http"
 	"time"
 )
 
-// render executes a page template. Templates are parsed at construction, so
-// the only failure left here is a bad field reference, which is a bug rather
-// than a condition to recover from — log it and show a bare 500.
+// render executes a page template into a buffer first, and only writes the
+// status line and body once that succeeds. Templates are parsed at
+// construction, so the only failure left here is a bad field reference,
+// which is a bug rather than a condition to recover from — but writing
+// status before execution would mean a failure ships the original status
+// with a truncated body, since the header is already committed by the time
+// ExecuteTemplate can fail. Buffering first keeps the promise of a clean
+// 500 on failure true.
 func (s *Server) render(w http.ResponseWriter, status int, name string, data any) {
+	tmpl, ok := s.tmpl[name]
+	if !ok {
+		log.Printf("render: no template registered for %q", name)
+		http.Error(w, "internal error", http.StatusInternalServerError)
+		return
+	}
+	var buf bytes.Buffer
+	if err := tmpl.ExecuteTemplate(&buf, name, data); err != nil {
+		log.Printf("render %s: %v", name, err)
+		http.Error(w, "internal error", http.StatusInternalServerError)
+		return
+	}
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	w.WriteHeader(status)
-	if err := s.tmpl.ExecuteTemplate(w, name, data); err != nil {
-		log.Printf("render %s: %v", name, err)
-	}
+	buf.WriteTo(w) //nolint:errcheck // best-effort write to an already-committed response
 }
 
 // humanDeadline renders a wall-clock deadline the way a person would say it.
