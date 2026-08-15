@@ -163,6 +163,11 @@ func TestShelfShowsPutItBackAfterATake(t *testing.T) {
 	if !strings.Contains(body, "Put it back") {
 		t.Error("the shelf does not offer the undo after a take")
 	}
+	// Unlike the take-to-zero band (F15), copies remain on this item — one
+	// of copies_total=3 was taken — so the count must still show.
+	if !strings.Contains(body, "2 copies") {
+		t.Error("the live shelf's 'Taken' state dropped the remaining copies count, not just the band's zero")
+	}
 }
 
 // TestTakeWithAnotherLibrarysSessionIs403 mirrors
@@ -662,6 +667,26 @@ func TestBandNeverAppearsWithoutASession(t *testing.T) {
 	}
 	if strings.Contains(body, "You took the last one") {
 		t.Error("the band's label appeared to a reader with no session")
+	}
+}
+
+// TestBandDoesNotShowZeroCopies is F15: the band renders under a heading
+// that already says "You took the last one", so "Taken · 0 copies" is a
+// contradiction in the same breath — the count is accurate and reads
+// badly. The band must not show a copies count at all.
+func TestBandDoesNotShowZeroCopies(t *testing.T) {
+	h, lib, cookieA, _, _ := bandFixture(t)
+
+	req := httptest.NewRequest(http.MethodGet, "/b/"+lib.Slug+"/", nil)
+	req.AddCookie(cookieA)
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+	body := rec.Body.String()
+	if !strings.Contains(body, "Put it back") {
+		t.Fatal("setup: the band did not render")
+	}
+	if strings.Contains(body, "0 copies") {
+		t.Error("the band showed a copies count; the heading already says the item is empty")
 	}
 }
 

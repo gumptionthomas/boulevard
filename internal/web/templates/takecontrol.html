@@ -21,7 +21,13 @@
       <p class="dim"><span class="inert">Take</span> {{.CopiesLeft}} copies</p>
     {{else if .TakenByYou}}
       <form method="post" action="{{.ItemBase}}{{.ID}}/untake">
-        <p class="dim"><span class="inert">Taken</span> {{.CopiesLeft}} copies</p>
+        {{/* CopiesLeft is 0 only in the take-to-zero band (a shed item is
+             not public, so this state cannot reach the live shelf or the
+             item page — see shelf.html's band and store.TakenToZeroBySession).
+             "Taken 0 copies" contradicts the band's own "You took the last
+             one" heading, so the count is dropped rather than shown as
+             zero; a nonzero count still says how many copies remain. */}}
+        <p class="dim"><span class="inert">Taken</span>{{if .CopiesLeft}} {{.CopiesLeft}} copies{{end}}</p>
         <button class="linkish" type="submit">Put it back</button>
       </form>
     {{else if .AtLimit}}
