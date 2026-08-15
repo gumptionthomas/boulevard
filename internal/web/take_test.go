@@ -109,6 +109,31 @@ func TestTakeWithoutASessionIsRefused(t *testing.T) {
 	}
 }
 
+// TestTakeAndUntakeRedirectsAreNoStore is F14: handleLeaveSubmit already
+// called noStore before its 303, but handleTake and handleUntake did not —
+// harmless in practice (a 303 is not heuristically cacheable), but an
+// inconsistency that reads as an oversight next to a page whose body
+// depends entirely on the session cookie.
+func TestTakeAndUntakeRedirectsAreNoStore(t *testing.T) {
+	srv, lib, cookie, itemID := takeServer(t, boulevard.ItemLink, "https://example.com/thing")
+
+	take := httptest.NewRequest(http.MethodPost, "/b/"+lib.Slug+"/i/"+itemID+"/take", nil)
+	take.AddCookie(cookie)
+	takeRec := httptest.NewRecorder()
+	srv.ServeHTTP(takeRec, take)
+	if got := takeRec.Header().Get("Cache-Control"); got != "no-store" {
+		t.Errorf("take Cache-Control = %q, want %q", got, "no-store")
+	}
+
+	undo := httptest.NewRequest(http.MethodPost, "/b/"+lib.Slug+"/i/"+itemID+"/untake", nil)
+	undo.AddCookie(cookie)
+	undoRec := httptest.NewRecorder()
+	srv.ServeHTTP(undoRec, undo)
+	if got := undoRec.Header().Get("Cache-Control"); got != "no-store" {
+		t.Errorf("untake Cache-Control = %q, want %q", got, "no-store")
+	}
+}
+
 func TestTakeIsPostOnly(t *testing.T) {
 	srv, lib, cookie, itemID := takeServer(t, boulevard.ItemLink, "https://example.com/thing")
 

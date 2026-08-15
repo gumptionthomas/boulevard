@@ -87,6 +87,10 @@ func (s *Server) handleTake(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// 303 so a reload cannot take the same thing twice, and — matching
+	// handleLeaveSubmit's own redirect — noStore so nothing caches a
+	// response whose Location depends on this cookie's session state.
+	noStore(w)
 	http.Redirect(w, r, takeDestination(lib, it), http.StatusSeeOther)
 }
 
@@ -127,6 +131,7 @@ func (s *Server) handleUntake(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	noStore(w)
 	http.Redirect(w, r, shelfURL(lib)+"#i-"+itemID, http.StatusSeeOther)
 }
 
