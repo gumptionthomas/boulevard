@@ -2,6 +2,7 @@ package web
 
 import (
 	"errors"
+	"log"
 	"net/http"
 
 	"github.com/gumptionthomas/boulevard/internal/store"
@@ -30,8 +31,12 @@ func (s *Server) handleItem(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// A view failing to record is not worth failing the page over.
-	_ = s.store.IncrementViews(r.Context(), lib.ID, it.ID)
+	// A view failing to record is not worth failing the page over, but a
+	// real fault should still leave a trace — only the benign race where
+	// the item vanished between ItemByID and here (ErrNotFound) is silent.
+	if err := s.store.IncrementViews(r.Context(), lib.ID, it.ID); err != nil && !errors.Is(err, store.ErrNotFound) {
+		log.Printf("view not recorded: %v", err)
+	}
 
 	s.render(w, http.StatusOK, "item.html", pageData{
 		Title:       lib.Name,
