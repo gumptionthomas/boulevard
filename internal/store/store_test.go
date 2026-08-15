@@ -278,3 +278,83 @@ func TestWALModeIsEnabled(t *testing.T) {
 		t.Errorf("journal_mode = %q, want %q (DESIGN.md §2)", mode, "wal")
 	}
 }
+
+func TestTokenBySecretResolvesItsLibrary(t *testing.T) {
+	ctx, s := context.Background(), openTemp(t)
+	lib := makeLibrary(t)
+	if err := s.CreateLibrary(ctx, lib); err != nil {
+		t.Fatal(err)
+	}
+	toks := makeTokens(t, lib.ID)
+	if err := s.InsertTokens(ctx, lib.ID, toks); err != nil {
+		t.Fatal(err)
+	}
+
+	got, err := s.TokenBySecret(ctx, toks[3].Secret)
+	if err != nil {
+		t.Fatalf("TokenBySecret: %v", err)
+	}
+	if got.ID != toks[3].ID {
+		t.Errorf("ID = %q, want %q", got.ID, toks[3].ID)
+	}
+	if got.LibraryID != lib.ID {
+		t.Errorf("LibraryID = %q, want %q — the secret must identify its library", got.LibraryID, lib.ID)
+	}
+	if got.PeriodIndex != toks[3].PeriodIndex {
+		t.Errorf("PeriodIndex = %d, want %d", got.PeriodIndex, toks[3].PeriodIndex)
+	}
+	if !got.ValidFrom.Equal(toks[3].ValidFrom) || !got.ValidUntil.Equal(toks[3].ValidUntil) {
+		t.Errorf("window = %v..%v, want %v..%v", got.ValidFrom, got.ValidUntil, toks[3].ValidFrom, toks[3].ValidUntil)
+	}
+}
+
+func TestTokenBySecretUnknownIsErrNotFound(t *testing.T) {
+	ctx, s := context.Background(), openTemp(t)
+	_, err := s.TokenBySecret(ctx, "QQQQQQQQQQQQQQQQQQQQQQQQQQ")
+	if !errors.Is(err, ErrNotFound) {
+		t.Errorf("err = %v, want ErrNotFound", err)
+	}
+}
+
+func TestLibraryByID(t *testing.T) {
+	ctx, s := context.Background(), openTemp(t)
+	lib := makeLibrary(t)
+	if err := s.CreateLibrary(ctx, lib); err != nil {
+		t.Fatal(err)
+	}
+	got, err := s.LibraryByID(ctx, lib.ID)
+	if err != nil {
+		t.Fatalf("LibraryByID: %v", err)
+	}
+	if got != lib {
+		t.Errorf("got %+v, want %+v", got, lib)
+	}
+
+	if _, err := s.LibraryByID(ctx, boulevard.LibraryID("NOPE")); !errors.Is(err, ErrNotFound) {
+		t.Errorf("missing id err = %v, want ErrNotFound", err)
+	}
+}
+
+func TestLibraryCount(t *testing.T) {
+	ctx, s := context.Background(), openTemp(t)
+	if n, err := s.LibraryCount(ctx); err != nil || n != 0 {
+		t.Fatalf("empty count = %d, %v; want 0, nil", n, err)
+	}
+	a := makeLibrary(t)
+	if err := s.CreateLibrary(ctx, a); err != nil {
+		t.Fatal(err)
+	}
+	if n, _ := s.LibraryCount(ctx); n != 1 {
+		t.Errorf("count = %d, want 1", n)
+	}
+	b := makeLibrary(t)
+	b.Slug = "other"
+	bID, _ := boulevard.NewLibraryID(rand.Reader)
+	b.ID = bID
+	if err := s.CreateLibrary(ctx, b); err != nil {
+		t.Fatal(err)
+	}
+	if n, _ := s.LibraryCount(ctx); n != 2 {
+		t.Errorf("count = %d, want 2", n)
+	}
+}

@@ -82,3 +82,30 @@ func (s *Store) UpdateLibrary(ctx context.Context, lib boulevard.Library) error 
 	}
 	return nil
 }
+
+// LibraryByID loads a library by its stable identifier.
+func (s *Store) LibraryByID(ctx context.Context, id boulevard.LibraryID) (boulevard.Library, error) {
+	var lib boulevard.Library
+	var got string
+	err := s.db.QueryRowContext(ctx,
+		`SELECT id, slug, name, location_label, base_url FROM libraries WHERE id = ?`, string(id)).
+		Scan(&got, &lib.Slug, &lib.Name, &lib.LocationLabel, &lib.BaseURL)
+	if errors.Is(err, sql.ErrNoRows) {
+		return boulevard.Library{}, fmt.Errorf("library %q: %w", id, ErrNotFound)
+	}
+	if err != nil {
+		return boulevard.Library{}, fmt.Errorf("look up library %q: %w", id, err)
+	}
+	lib.ID = boulevard.LibraryID(got)
+	return lib, nil
+}
+
+// LibraryCount reports how many libraries this database holds. GET / uses it
+// to decide whether a redirect to the sole shelf is meaningful.
+func (s *Store) LibraryCount(ctx context.Context) (int, error) {
+	var n int
+	if err := s.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM libraries`).Scan(&n); err != nil {
+		return 0, fmt.Errorf("count libraries: %w", err)
+	}
+	return n, nil
+}
