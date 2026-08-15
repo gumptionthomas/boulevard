@@ -1,2 +1,20 @@
 .superpowers/
 .claude/worktrees/
+
+# The compiled binary, when built in place.
+/boulevard
+
+# Token secrets are stored in plaintext by design (DESIGN.md: a lost booklet is
+# likelier than server compromise, and reprinting must always work). That makes
+# a database file the shelf's write credential, so it must never be committable
+# by a stray `git add -A`. The -wal and -shm sidecars hold the same secrets.
+*.db
+*.db-wal
+*.db-shm
+
+# Booklet PDFs carry the same secrets as QR codes.
+*.pdf
+
+# Except the golden fixture, whose secrets are the test's own fixed values.
+# Without this, regenerating it would need `git add -f`.
+!internal/booklet/testdata/booklet.pdf

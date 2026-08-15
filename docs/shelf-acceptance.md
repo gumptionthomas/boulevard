@@ -13,27 +13,27 @@ Every check below is performable on the day the booklet is printed.
 
 ## Check
 
-- [ ] Loading the shelf without scanning shows "The shelf is empty." and
+- [x] Loading the shelf without scanning shows "The shelf is empty." and
       "Scan the code at the box to take or leave something."
-- [ ] Tapping "Leave something" without a session shows the form with the
+- [x] Tapping "Leave something" without a session shows the form with the
       submit button disabled and the same explanation — not a 404.
-- [ ] After scanning the current card, the form's submit button is live.
-- [ ] Submitting with a blank note refuses, and the link you typed is still
+- [x] After scanning the current card, the form's submit button is live.
+- [x] Submitting with a blank note refuses, and the link you typed is still
       in the form. Losing a composed note is this form's worst failure.
-- [ ] Submitting a good link shows "Left at the box." and says a steward
+- [x] Submitting a good link shows "Left at the box." and says a steward
       looks first.
-- [ ] The shelf does NOT show the item yet.
-- [ ] `boulevard queue` lists it with a four-character id, the note, and
+- [x] The shelf does NOT show the item yet.
+- [x] `boulevard queue` lists it with a four-character id, the note, and
       when it was left.
-- [ ] `boulevard approve <id>` says "Shelved."
-- [ ] The shelf now shows it, note first, with the domain beneath and
+- [x] `boulevard approve <id>` says "Shelved."
+- [x] The shelf now shows it, note first, with the domain beneath and
       "3 copies".
-- [ ] Loading the shelf on a phone that has never scanned anything shows the
+- [x] Loading the shelf on a phone that has never scanned anything shows the
       item. Consumption is global; mutation is local.
-- [ ] Tapping the note opens the item's own page.
-- [ ] `boulevard reject <id>` on a second submission says "Released.", and
+- [x] Tapping the note opens the item's own page.
+- [x] `boulevard reject <id>` on a second submission says "Released.", and
       that item never reaches the shelf.
-- [ ] An ambiguous id prefix refuses and names the candidates rather than
+- [x] An ambiguous id prefix refuses and names the candidates rather than
       guessing.
 
 ## The full shelf
@@ -73,9 +73,9 @@ them one at a time, checking `boulevard queue --db small.db` between each:
 
     boulevard approve --db small.db <id>
 
-- [ ] Approving the third sheds the first: the shelf still shows two, and
+- [x] Approving the third sheds the first: the shelf still shows two, and
       the CLI says the oldest moved to the shed.
-- [ ] The shed item is not on the shelf and not in the queue. There is no
+- [x] The shed item is not on the shelf and not in the queue. There is no
       way to browse it yet — the shed view is Milestone 3.
 
 When finished, delete `small.db` and its `-wal`/`-shm` sidecars — WAL mode
@@ -84,7 +84,32 @@ database.
 
 ## Run record
 
-Not yet performed. This checklist requires a printed booklet, a phone on
-the same LAN, and a terminal at the box — none of which are available in
-this environment. A human must run it against a live install before
-Milestone 2 is considered accepted.
+**Performed 15 August 2026, against `milestone-2-shelf`.** Booklet printed
+on a Brother HL-L2305, cards cut, scanned with a phone over LAN. All
+checks in "Check" passed.
+
+"The full shelf" was driven headlessly rather than from the phone: a
+token secret was read out of `small.db` and the three leaves were POSTed
+with curl. The camera path is not what that section tests, and it was
+already proven by the checks above; twelve printed cards for a library
+deleted ten minutes later bought nothing. It exercised the same handlers
+and the same eviction transaction. Recorded so nobody reads those two
+boxes as phone-verified.
+
+    approve #3 -> "Shelved."
+                  "The shelf was full, so the oldest item moved to the shed."
+    shelf     -> item three, item two.  Item one gone.
+    queue     -> "Nothing waiting for Small."
+
+The shed item's own page was checked too, beyond what the boxes ask: it
+returns 404 while a shelved sibling returns 200. That is the `handleItem`
+state filter, which the whole-branch review had to add — worth confirming
+against a running server rather than only in a test.
+
+One defect turned up, fixed on the branch: `.gitignore` covered neither
+`*.db` nor `*.pdf`. Token secrets are stored in plaintext by design, so a
+stray `git add -A` in a working install would have committed the shelf's
+write credential.
+
+The footer contrast fix landed just before this run and was confirmed in
+the served CSS.
