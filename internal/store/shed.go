@@ -31,6 +31,17 @@ func (s *Store) ShedItems(ctx context.Context, id boulevard.LibraryID) ([]boulev
 // does: the steward asked to add one item, not to remove another. §5 also
 // warns against mechanics that generate steward labor — silently evicting
 // here would create exactly the surprise that produces more of it.
+//
+// It also deletes every session_takes row on this item. Those rows are the
+// arming condition for UntakeItem's un-shed branch, and a re-shelve is a
+// steward decision — the same reason UntakeItem checks shed_reason rather
+// than state, so a stranger cannot reverse it. Leaving them in place would
+// let any of the original takers "undo" a take the steward already
+// resolved: copies_left would climb past a fresh re-shelve's own restore,
+// and a stale undo could even un-shed an item a later session emptied on
+// its own. Deleting them also frees the takers' rate-limit slots, which is
+// correct as a side effect — the item is back with full copies, and taking
+// it again should spend a copy properly rather than reuse a stale one.
 func (s *Store) ReshelveItem(ctx context.Context, id boulevard.LibraryID, itemID string, now time.Time) error {
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
@@ -68,11 +79,18 @@ func (s *Store) ReshelveItem(ctx context.Context, id boulevard.LibraryID, itemID
 
 	if _, err := tx.ExecContext(ctx,
 		`UPDATE items
-		    SET state = 'shelved', shelved_at = ?, shed_at = NULL, shed_reason = '',
+		    SET state = 'shelved', shelved_at = ?, shed_at = NULL, shed_reason = ?,
 		        copies_left = copies_total
 		  WHERE library_id = ? AND id = ?`,
-		now.UTC().Format(time.RFC3339), string(id), itemID); err != nil {
+		now.UTC().Format(time.RFC3339), string(boulevard.ShedNone), string(id), itemID); err != nil {
 		return fmt.Errorf("reshelve %q: %w", itemID, err)
+	}
+
+	// The steward's re-shelve is a decision UntakeItem must not let a
+	// stranger reverse — see the doc comment above.
+	if _, err := tx.ExecContext(ctx,
+		`DELETE FROM session_takes WHERE item_id = ?`, itemID); err != nil {
+		return fmt.Errorf("clear takes on %q: %w", itemID, err)
 	}
 
 	if err := tx.Commit(); err != nil {
