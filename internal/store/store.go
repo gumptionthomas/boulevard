@@ -81,6 +81,21 @@ var ErrShelfFull = errors.New("shelf is full")
 // item.
 var ErrNotShed = errors.New("item is not in the shed")
 
+// ErrAllPinned is a full shelf with nothing evictable. ApproveItem's
+// comment has described this since Milestone 2 and called it
+// unreachable "today, because no code sets pinned" — Milestone 4a is
+// when it can fire. The answer is to refuse the approval naming the
+// pins, never to evict one: a pin is the steward saying "this stays".
+var ErrAllPinned = errors.New("every item on the shelf is pinned")
+
+// ErrNotShelved distinguishes "no such item" from "that item is not on
+// the shelf", the way ErrNotPending and ErrNotShed already do for the
+// queue and the shed.
+var ErrNotShelved = errors.New("item is not on the shelf")
+
+// ErrPinLimit is the fourth pin. DESIGN.md §5 caps pins at 3.
+var ErrPinLimit = errors.New("pin limit reached")
+
 // FileMode is what the database and its sidecars are kept at.
 //
 // Token secrets are stored in plaintext (DESIGN.md §4), and a secret IS the

@@ -278,6 +278,11 @@ func decide(args []string, verb string) int {
 
 	evicted, err := s.ApproveItem(ctx, lib.ID, it.ID, time.Now())
 	if err != nil {
+		if errors.Is(err, store.ErrAllPinned) {
+			fmt.Fprintf(os.Stderr, "  x  shelf is full and every item is pinned — nothing was approved.\n"+
+				"     Unpin something or raise the slot count first.\n")
+			return exitUsage
+		}
 		fmt.Fprintf(os.Stderr, "  x  %v\n", err)
 		return decideExit(err)
 	}

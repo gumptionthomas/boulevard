@@ -584,3 +584,148 @@ func TestRejectReleasesWithoutDeleting(t *testing.T) {
 		t.Errorf("queue still holds %d, want 0", len(pending))
 	}
 }
+
+// TestApproveRefusesWhenEveryShelvedItemIsPinned covers the branch that
+// Milestone 4a switches on. Before pins could be set, ApproveItem's eviction
+// query could never match nothing; now it can, and the answer is a refusal
+// rather than evicting a pin.
+func TestApproveRefusesWhenEveryShelvedItemIsPinned(t *testing.T) {
+	loc := chicago(t)
+	st := openTemp(t)
+	lib := seedLibrary(t, st)
+	now := time.Date(2026, 8, 17, 20, 25, 0, 0, loc)
+	ctx := context.Background()
+
+	if _, err := st.db.Exec(`UPDATE libraries SET slots = 1 WHERE id = ?`,
+		string(lib.ID)); err != nil {
+		t.Fatalf("set slots: %v", err)
+	}
+	pinned := shelvedTestItemAt(t, st, lib.ID, "PINNED", now.Add(-time.Hour))
+	if err := st.PinItem(ctx, lib.ID, pinned.ID, 3); err != nil {
+		t.Fatalf("pin: %v", err)
+	}
+	waiting := pendingTestItem(t, st, lib.ID, "WAITING", now)
+
+	_, err := st.ApproveItem(ctx, lib.ID, waiting.ID, now)
+	if !errors.Is(err, ErrAllPinned) {
+		t.Fatalf("approve error = %v, want ErrAllPinned", err)
+	}
+
+	// Nothing moved: not the pin, and not the item that was refused.
+	got, err := st.ItemByID(ctx, lib.ID, pinned.ID)
+	if err != nil {
+		t.Fatalf("read pinned: %v", err)
+	}
+	if got.State != boulevard.ItemShelved {
+		t.Errorf("the pinned item was evicted: state = %s", got.State)
+	}
+	still, err := st.ItemByID(ctx, lib.ID, waiting.ID)
+	if err != nil {
+		t.Fatalf("read waiting: %v", err)
+	}
+	if still.State != boulevard.ItemPending {
+		t.Errorf("the refused item changed state to %s", still.State)
+	}
+}
+
+func TestPinLimitIsThree(t *testing.T) {
+	loc := chicago(t)
+	st := openTemp(t)
+	lib := seedLibrary(t, st)
+	now := time.Date(2026, 8, 17, 20, 25, 0, 0, loc)
+	ctx := context.Background()
+
+	for i, id := range []string{"P1", "P2", "P3"} {
+		it := shelvedTestItemAt(t, st, lib.ID, id, now.Add(time.Duration(i)*time.Minute))
+		if err := st.PinItem(ctx, lib.ID, it.ID, 3); err != nil {
+			t.Fatalf("pin %s: %v", id, err)
+		}
+	}
+	fourth := shelvedTestItemAt(t, st, lib.ID, "P4", now)
+
+	if err := st.PinItem(ctx, lib.ID, fourth.ID, 3); !errors.Is(err, ErrPinLimit) {
+		t.Fatalf("fourth pin error = %v, want ErrPinLimit", err)
+	}
+	got, err := st.ItemByID(ctx, lib.ID, fourth.ID)
+	if err != nil {
+		t.Fatalf("read: %v", err)
+	}
+	if got.Pinned {
+		t.Error("the fourth item was pinned anyway")
+	}
+}
+
+func TestUnpinFreesASlotForAnotherPin(t *testing.T) {
+	loc := chicago(t)
+	st := openTemp(t)
+	lib := seedLibrary(t, st)
+	now := time.Date(2026, 8, 17, 20, 25, 0, 0, loc)
+	ctx := context.Background()
+
+	first := shelvedTestItemAt(t, st, lib.ID, "P1", now)
+	if err := st.PinItem(ctx, lib.ID, first.ID, 1); err != nil {
+		t.Fatalf("pin: %v", err)
+	}
+	second := shelvedTestItemAt(t, st, lib.ID, "P2", now)
+	if err := st.PinItem(ctx, lib.ID, second.ID, 1); !errors.Is(err, ErrPinLimit) {
+		t.Fatalf("second pin error = %v, want ErrPinLimit", err)
+	}
+
+	if err := st.UnpinItem(ctx, lib.ID, first.ID); err != nil {
+		t.Fatalf("unpin: %v", err)
+	}
+	if err := st.PinItem(ctx, lib.ID, second.ID, 1); err != nil {
+		t.Fatalf("pin after unpin: %v", err)
+	}
+}
+
+func TestRemoveShedsWithItsOwnReason(t *testing.T) {
+	loc := chicago(t)
+	st := openTemp(t)
+	lib := seedLibrary(t, st)
+	now := time.Date(2026, 8, 17, 20, 25, 0, 0, loc)
+	ctx := context.Background()
+
+	it := shelvedTestItemAt(t, st, lib.ID, "ITEM1", now)
+	if err := st.RemoveItem(ctx, lib.ID, it.ID, now); err != nil {
+		t.Fatalf("remove: %v", err)
+	}
+
+	got, err := st.ItemByID(ctx, lib.ID, it.ID)
+	if err != nil {
+		t.Fatalf("read: %v", err)
+	}
+	if got.State != boulevard.ItemShed {
+		t.Errorf("state = %s, want shed — remove sheds, it does not release", got.State)
+	}
+	if got.ShedReason != boulevard.ShedRemoved {
+		t.Errorf("reason = %q, want %q", got.ShedReason, boulevard.ShedRemoved)
+	}
+	if got.ShedAt == nil {
+		t.Error("shed_at was not set")
+	}
+
+	// Recoverable, which is why remove sheds rather than releases.
+	if err := st.ReshelveItem(ctx, lib.ID, it.ID, now); err != nil {
+		t.Errorf("a removed item could not be re-shelved: %v", err)
+	}
+}
+
+func TestPinUnpinRemoveRefuseItemsNotOnTheShelf(t *testing.T) {
+	loc := chicago(t)
+	st := openTemp(t)
+	lib := seedLibrary(t, st)
+	now := time.Date(2026, 8, 17, 20, 25, 0, 0, loc)
+	ctx := context.Background()
+	pending := pendingTestItem(t, st, lib.ID, "WAITING", now)
+
+	if err := st.PinItem(ctx, lib.ID, pending.ID, 3); !errors.Is(err, ErrNotShelved) {
+		t.Errorf("pin error = %v, want ErrNotShelved", err)
+	}
+	if err := st.UnpinItem(ctx, lib.ID, pending.ID); !errors.Is(err, ErrNotShelved) {
+		t.Errorf("unpin error = %v, want ErrNotShelved", err)
+	}
+	if err := st.RemoveItem(ctx, lib.ID, pending.ID, now); !errors.Is(err, ErrNotShelved) {
+		t.Errorf("remove error = %v, want ErrNotShelved", err)
+	}
+}
