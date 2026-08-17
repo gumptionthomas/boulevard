@@ -159,6 +159,56 @@ func TestApproveIntoAFullShelfSaysWhatItShed(t *testing.T) {
 	}
 }
 
+// TestApproveOntoAnAllPinnedShelfNamesThePins is the CLI half of the
+// refusal ApproveItem's own comment described as unreachable until this
+// milestone: a full shelf where every item is pinned. Modeled on
+// TestReshelveOntoAFullShelfRefusesAndNamesWhy in shed_test.go. Spec §10
+// requires the refusal name the pins, not just count them, so this checks
+// the pinned item's handle appears in the refusal rather than only the word
+// "pinned".
+func TestApproveOntoAnAllPinnedShelfNamesThePins(t *testing.T) {
+	path, s, libs := cliStore(t, "fairview")
+	lib := libs[0]
+	base := time.Date(2026, time.August, 15, 9, 0, 0, 0, time.UTC)
+
+	pinned := leavePending(t, s, lib, "AAAAZZZZZZZZZZZZZZZZZZZZZZ", "the pin", base)
+	if code := runApprove([]string{"--db", path, pinned.ID[:4]}); code != exitOK {
+		t.Fatalf("approving the item to pin failed with %d", code)
+	}
+	if err := s.PinItem(context.Background(), lib.ID, pinned.ID, 3); err != nil {
+		t.Fatalf("pin: %v", err)
+	}
+
+	stored, err := s.LibraryBySlug(context.Background(), lib.Slug)
+	if err != nil {
+		t.Fatal(err)
+	}
+	stored.Slots = 1
+	if err := s.UpdateLibrary(context.Background(), stored); err != nil {
+		t.Fatal(err)
+	}
+
+	waiting := leavePending(t, s, lib, "BBBBZZZZZZZZZZZZZZZZZZZZZZ", "waiting", base.Add(time.Hour))
+
+	out := captureStderr(t, func() {
+		if code := runApprove([]string{"--db", path, waiting.ID[:4]}); code == exitOK {
+			t.Error("approve onto an all-pinned shelf succeeded")
+		}
+	})
+	if !strings.Contains(out, "nothing was approved") {
+		t.Errorf("the refusal does not say nothing was approved: %q", out)
+	}
+	if !strings.Contains(out, strings.ToLower(pinned.ID[:4])) {
+		t.Errorf("the refusal does not name the pinned item blocking it: %q", out)
+	}
+	if got := stateOfItem(t, s, lib, waiting.ID); got != boulevard.ItemPending {
+		t.Errorf("the refused item is %q, want it still pending", got)
+	}
+	if got := stateOfItem(t, s, lib, pinned.ID); got != boulevard.ItemShelved {
+		t.Errorf("the pinned item is %q, want it still shelved and unevicted", got)
+	}
+}
+
 // An ambiguous prefix is the steward's mistake, not the database's, so it
 // must not read as an I/O failure to whatever is reading the exit code.
 func TestDecideRefusesAnAmbiguousPrefix(t *testing.T) {

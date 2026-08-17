@@ -55,6 +55,15 @@ func (s *Store) PendingItems(ctx context.Context, id boulevard.LibraryID) ([]bou
 		`WHERE library_id = ? AND state = 'pending' ORDER BY left_at ASC, id ASC`)
 }
 
+// PinnedItems lists what a fourth pin or an all-pinned approval refusal
+// needs to name: DESIGN.md §5/§6 both require the steward be told *which*
+// items are blocking, not just how many. Oldest-pinned first, the same
+// order ApproveItem's eviction scan would consider them in.
+func (s *Store) PinnedItems(ctx context.Context, id boulevard.LibraryID) ([]boulevard.Item, error) {
+	return s.itemsWhere(ctx, id,
+		`WHERE library_id = ? AND state = 'shelved' AND pinned = 1 ORDER BY shelved_at ASC, id ASC`)
+}
+
 func (s *Store) itemsWhere(ctx context.Context, id boulevard.LibraryID, clause string) ([]boulevard.Item, error) {
 	rows, err := s.db.QueryContext(ctx, `SELECT `+itemColumns+` FROM items `+clause, string(id))
 	if err != nil {
@@ -194,11 +203,25 @@ func (s *Store) ApproveItem(ctx context.Context, id boulevard.LibraryID, itemID 
 			  WHERE library_id = ? AND state = 'shelved' AND pinned = 0
 			  ORDER BY shelved_at ASC, id ASC LIMIT 1`,
 			string(id)).Scan(&evicted)
-		if errors.Is(err, sql.ErrNoRows) {
+		// The shelved > 0 guard matters: with slots <= 0 (only reachable
+		// through the zero-valued-Library trap this method's doc comment
+		// already warns about), shelved >= slots holds on an empty shelf
+		// too, and the query above returns sql.ErrNoRows for "there is
+		// nothing here" exactly as it does for "everything here is pinned".
+		// Without the guard, an empty shelf would be confidently misreported
+		// as an all-pinned one instead of falling through to the generic,
+		// honestly-unhelpful wrap below.
+		if errors.Is(err, sql.ErrNoRows) && shelved > 0 {
 			// Every shelved item is pinned. Refuse rather than evict: a pin
 			// is the steward saying "this stays", and silently overriding it
 			// is exactly the surprise §5 warns generates steward labour.
-			return "", fmt.Errorf("shelf is full and every item is pinned: %w", ErrAllPinned)
+			//
+			// The wrap carries the numbers and ErrAllPinned carries the
+			// phrase, so %v reads as one sentence rather than repeating
+			// "pinned" twice — this is also the only place the phrase is
+			// written; the CLI and the future web handler both name the
+			// pinned items via PinnedItems instead of re-deriving text.
+			return "", fmt.Errorf("%d of %d slots, and nothing evictable: %w", shelved, slots, ErrAllPinned)
 		}
 		if err != nil {
 			return "", fmt.Errorf("find the oldest shelved item: %w", err)

@@ -679,6 +679,15 @@ func TestUnpinFreesASlotForAnotherPin(t *testing.T) {
 	}
 }
 
+// TestRemoveShedsWithItsOwnReason also covers the RemoveItem invariant a
+// plain "remove an unpinned item" case cannot: RemoveItem is the fourth and
+// last exit from `shelved` (alongside ApproveItem's eviction,
+// SweepExpiredItems, and TakeItem's take-to-zero, which all refuse or
+// filter pinned items outright), so it is the only place that clears the
+// flag. Deleting `, pinned = 0` from its UPDATE would leave a plain
+// remove-of-an-unpinned-item test green while letting a pinned item survive
+// a remove/reshelve round trip still pinned — which would let the shelf
+// hold four pins and make PinItem wrongly refuse a legitimate fourth.
 func TestRemoveShedsWithItsOwnReason(t *testing.T) {
 	loc := chicago(t)
 	st := openTemp(t)
@@ -687,6 +696,9 @@ func TestRemoveShedsWithItsOwnReason(t *testing.T) {
 	ctx := context.Background()
 
 	it := shelvedTestItemAt(t, st, lib.ID, "ITEM1", now)
+	if err := st.PinItem(ctx, lib.ID, it.ID, 3); err != nil {
+		t.Fatalf("pin: %v", err)
+	}
 	if err := st.RemoveItem(ctx, lib.ID, it.ID, now); err != nil {
 		t.Fatalf("remove: %v", err)
 	}
@@ -704,13 +716,28 @@ func TestRemoveShedsWithItsOwnReason(t *testing.T) {
 	if got.ShedAt == nil {
 		t.Error("shed_at was not set")
 	}
+	if got.Pinned {
+		t.Error("the item is still pinned in the shed — a pin must not exist off the shelf")
+	}
 
 	// Recoverable, which is why remove sheds rather than releases.
 	if err := st.ReshelveItem(ctx, lib.ID, it.ID, now); err != nil {
 		t.Errorf("a removed item could not be re-shelved: %v", err)
 	}
+	back, err := st.ItemByID(ctx, lib.ID, it.ID)
+	if err != nil {
+		t.Fatalf("read after reshelve: %v", err)
+	}
+	if back.Pinned {
+		t.Error("the pin came back on reshelve — it must return as ordinary stock")
+	}
 }
 
+// TestPinUnpinRemoveRefuseItemsNotOnTheShelf checks both halves spec §10
+// asks for: an id that exists but is not shelved gets ErrNotShelved, and an
+// id naming nothing at all still gets ErrNotFound — the same "never
+// existed" vs. "does not apply" split ErrNotPending and ErrNotShed already
+// give the queue and the shed.
 func TestPinUnpinRemoveRefuseItemsNotOnTheShelf(t *testing.T) {
 	loc := chicago(t)
 	st := openTemp(t)
@@ -727,5 +754,15 @@ func TestPinUnpinRemoveRefuseItemsNotOnTheShelf(t *testing.T) {
 	}
 	if err := st.RemoveItem(ctx, lib.ID, pending.ID, now); !errors.Is(err, ErrNotShelved) {
 		t.Errorf("remove error = %v, want ErrNotShelved", err)
+	}
+
+	if err := st.PinItem(ctx, lib.ID, "NOSUCHITEM", 3); !errors.Is(err, ErrNotFound) {
+		t.Errorf("pin error = %v, want ErrNotFound", err)
+	}
+	if err := st.UnpinItem(ctx, lib.ID, "NOSUCHITEM"); !errors.Is(err, ErrNotFound) {
+		t.Errorf("unpin error = %v, want ErrNotFound", err)
+	}
+	if err := st.RemoveItem(ctx, lib.ID, "NOSUCHITEM", now); !errors.Is(err, ErrNotFound) {
+		t.Errorf("remove error = %v, want ErrNotFound", err)
 	}
 }
