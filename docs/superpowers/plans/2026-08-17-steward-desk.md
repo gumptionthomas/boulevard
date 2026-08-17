@@ -338,7 +338,7 @@ git commit -m "feat: the steward key, and a fourth shed reason"
   - `func (s *Store) VerifyStewardKey(ctx context.Context, id boulevard.LibraryID, key string) (bool, error)`
   - `func (s *Store) CreateStewardSession(ctx context.Context, sess boulevard.StewardSession) error`
   - `func (s *Store) StewardSessionByID(ctx context.Context, id string, now time.Time) (boulevard.StewardSession, error)`
-  - `func (s *Store) RenewStewardSession(ctx context.Context, id string, expiresAt time.Time) error`
+  - `func (s *Store) RenewStewardSession(ctx context.Context, id string, now, expiresAt time.Time) error` — takes the clock and refuses to revive an expired row; see the note below
   - `func (s *Store) DeleteStewardSession(ctx context.Context, id string) error`
   - `func (s *Store) SweepExpiredStewardSessions(ctx context.Context, now time.Time) (int64, error)`
   - `boulevard.StewardSession` and `boulevard.StewardSessionTTL`
@@ -1489,11 +1489,15 @@ func (s *Server) requireSteward(w http.ResponseWriter, r *http.Request) (bouleva
 ```go
 	if sess.ExpiresAt.Sub(s.now()) < boulevard.StewardSessionTTL/2 {
 		if err := s.store.RenewStewardSession(r.Context(), sess.ID,
-			s.now().Add(boulevard.StewardSessionTTL)); err != nil {
+			s.now(), s.now().Add(boulevard.StewardSessionTTL)); err != nil {
 			log.Printf("steward session not renewed: %v", err)
 		}
 	}
 ```
+
+**`RenewStewardSession` takes `now` as well as the new expiry, and its write is conditional on the row not having expired already.** Task 2's review found that an unconditional renewal would extend a session that expired an hour ago but had not yet been swept — and that window always exists, because the sweep is traffic-driven. This call site loads through `StewardSessionByID` first, which already refuses an expired row, so the guard is belt and braces here. It exists so the store does not depend on every future caller remembering a rule it can enforce itself.
+
+A consequence worth knowing at this call site: with the guard in place, `ErrNotFound` from a renewal means *either* "no such id" *or* "already expired". Logging and continuing, as above, is correct for both — the session was already loaded and checked, so a renewal failure is housekeeping, not an auth decision.
 
 The login handler must **not** call `requireSteward` (it would redirect to itself) but must still 404 when no key is set. On success it mints a session, sets the cookie, and 303s to the hub. On failure it re-renders the form with a generic message, sets no cookie, and never echoes the submitted value.
 
