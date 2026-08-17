@@ -85,11 +85,39 @@ CREATE TABLE IF NOT EXISTS session_takes (
 );
 `
 
+// addStewardCredential is Milestone 4a.
+//
+// steward_sessions is deliberately its own table rather than a kind column
+// on `sessions`. Milestone 3 sweeps `sessions` unconditionally on every
+// shelf and item render, and that sweep's value depends on having no
+// exceptions — a steward session living there would either be deleted by it
+// or force one. They are also different objects: a presence session carries
+// the token_id of the card that minted it and exists to be forgotten; a
+// steward session has no card behind it and is meant to last thirty days.
+//
+// An empty steward_key_hash is the "no key set" state, which 404s every
+// steward route. The column default makes every existing database correct
+// with no data migration.
+//
+// No ON DELETE CASCADE on library_id: nothing deletes a library, and v2's
+// storage model gives each library its own file.
+const addStewardCredential = `
+ALTER TABLE libraries ADD COLUMN steward_key_hash TEXT NOT NULL DEFAULT '';
+
+CREATE TABLE IF NOT EXISTS steward_sessions (
+    id         TEXT PRIMARY KEY,
+    library_id TEXT NOT NULL REFERENCES libraries(id),
+    created_at TEXT NOT NULL,
+    expires_at TEXT NOT NULL
+);
+`
+
 var migrations = []migration{
 	{1, schema},
 	{2, addLibrarySettings},
 	{3, createItems},
 	{4, addTakesAndShedReasons},
+	{5, addStewardCredential},
 }
 
 // migrate applies every migration not yet recorded, each in its own
