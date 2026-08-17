@@ -1,25 +1,65 @@
 {{define "shelf.html"}}{{template "layout" .}}{{end}}
 {{define "body"}}
-{{if .HasSession}}<div class="banner">You're at the box.<span>You can leave or take until {{.Deadline}}.</span></div>{{end}}
+{{/* The banner states what it knows — that you have presence, and for how
+     long. It deliberately does NOT name the verbs any more: it used to read
+     "You can leave or take until …", which kept asserting a capability the
+     controls below it had already withdrawn, most starkly on the leave form
+     where it sat directly above a disabled button explaining you had spent
+     your three. A line that renders on every page in every state cannot
+     also be a summary of remaining allowance; the inert controls own that.
+     DESIGN.md §6 is amended to match. */}}
+{{if .HasSession}}<div class="banner">You're at the box.<span>Until {{.Deadline}}.</span></div>{{end}}
 <main>
   <div class="site">{{.LibraryName}}</div>
-  {{if .Items}}
-    {{range .Items}}
-      <div class="item">
-        <p class="note"><a href="{{$.ShelfURL}}i/{{.ID}}">{{.Note}}</a></p>
+  {{if .Notice}}<p class="err">{{.Notice}}</p>{{end}}
+  {{if .ItemViews}}
+    {{range .ItemViews}}
+      <div class="item" id="i-{{.ID}}">
+        <p class="note"><a href="{{$.ItemBase}}{{.ID}}">{{.Note}}</a></p>
         {{if eq .Type "link"}}
           <p class="src"><b>{{.LinkDomain}}</b> · a link</p>
         {{else}}
           <p class="itemtext">{{.Payload}}</p>
         {{end}}
-        <p class="dim"><span class="inert">Take</span> {{.CopiesLeft}} copies{{if .Attribution}} · left by {{.Attribution}}{{end}}</p>
+        {{template "takecontrol" .}}
+        {{if .Attribution}}<p class="dim">left by {{.Attribution}}</p>{{end}}
       </div>
     {{end}}
+  {{else if .TakenToZero}}
+    {{/* I-1: the live shelf really is empty, but this session emptied it
+         themself, and their own undo is right below. Rendering the
+         ordinary "nothing here yet" invitation here would be wrong — it
+         reads as though nothing exists, when the one thing that did exist
+         is one tap away from coming back. */}}
+    <div class="empty">
+      <h2>You took the last of what was here.</h2>
+      <p class="dim">The shelf refills as neighbours leave things. Yours is below if you'd rather put it back.</p>
+    </div>
   {{else}}
     <div class="empty">
       <h2>The shelf is empty.</h2>
       <p class="dim">Nothing here yet. That's an invitation.</p>
     </div>
+  {{end}}
+  {{if .TakenToZero}}
+    {{/* Visually distinct and separately labelled (I-1): this must read as
+         "you took the last one", never as a second shelf. Every entry here
+         has TakenByYou already true, so takecontrol renders only the
+         "Put it back" state — there is nothing left to take. Not linked to
+         its own item page: a shed item's page 404s (§5), even for the
+         session that emptied it. */}}
+    <h2 class="bandlabel">You took the last one</h2>
+    {{range .TakenToZero}}
+      <div class="item band" id="i-{{.ID}}">
+        <p class="note">{{.Note}}</p>
+        {{if eq .Type "link"}}
+          <p class="src"><b>{{.LinkDomain}}</b> · a link</p>
+        {{else}}
+          <p class="itemtext">{{.Payload}}</p>
+        {{end}}
+        {{template "takecontrol" .}}
+      </div>
+    {{end}}
   {{end}}
   {{if not .HasSession}}<p class="dim">Scan the code at the box to take or leave something.</p>{{end}}
   <a class="btn" href="{{.LeaveURL}}">Leave something</a>

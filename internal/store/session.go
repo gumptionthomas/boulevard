@@ -62,6 +62,43 @@ func (s *Store) SessionByID(ctx context.Context, id boulevard.SessionID, now tim
 	return sess, nil
 }
 
+// LeavesForSession is the per-session leave count (DESIGN.md §4: 3 leaves).
+//
+// A bare counter, not a set of item ids. §3 forbids linking a left item to
+// the session that left it: a left item is public and permanent, so a link
+// from it would point at durable data from the other side and survive the
+// session sweep — the user record §1 forbids. Takes are the other case and
+// are linked, because a take is private and its row dies with the session.
+func (s *Store) LeavesForSession(ctx context.Context, sessionID boulevard.SessionID) (int, error) {
+	var n int
+	err := s.db.QueryRowContext(ctx,
+		`SELECT leaves_used FROM sessions WHERE id = ?`, string(sessionID)).Scan(&n)
+	if errors.Is(err, sql.ErrNoRows) {
+		return 0, fmt.Errorf("session: %w", ErrNotFound)
+	}
+	if err != nil {
+		return 0, fmt.Errorf("read leaves_used: %w", err)
+	}
+	return n, nil
+}
+
+func (s *Store) IncrementLeaves(ctx context.Context, sessionID boulevard.SessionID) error {
+	res, err := s.db.ExecContext(ctx,
+		`UPDATE sessions SET leaves_used = leaves_used + 1 WHERE id = ?`,
+		string(sessionID))
+	if err != nil {
+		return fmt.Errorf("increment leaves_used: %w", err)
+	}
+	n, err := res.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("increment leaves_used: %w", err)
+	}
+	if n == 0 {
+		return fmt.Errorf("session: %w", ErrNotFound)
+	}
+	return nil
+}
+
 // DeleteSession removes one session by id.
 //
 // Like SessionByID it takes no LibraryID, and for the same reason: the id

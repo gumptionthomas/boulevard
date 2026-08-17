@@ -12,7 +12,7 @@ import (
 
 const itemColumns = `id, library_id, type, payload, note, attribution,
                      copies_total, copies_left, state, pinned, views, takes,
-                     left_at, shelved_at`
+                     left_at, shelved_at, shed_at, shed_reason`
 
 func (s *Store) CreateItem(ctx context.Context, id boulevard.LibraryID, it boulevard.Item) error {
 	if it.LibraryID != id {
@@ -22,13 +22,18 @@ func (s *Store) CreateItem(ctx context.Context, id boulevard.LibraryID, it boule
 	if it.ShelvedAt != nil {
 		shelved = it.ShelvedAt.UTC().Format(time.RFC3339)
 	}
+	var shedAt any
+	if it.ShedAt != nil {
+		shedAt = it.ShedAt.UTC().Format(time.RFC3339)
+	}
 	_, err := s.db.ExecContext(ctx,
 		`INSERT INTO items (`+itemColumns+`, created_at)
-		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		it.ID, string(id), string(it.Type), it.Payload, it.Note, it.Attribution,
 		it.CopiesTotal, it.CopiesLeft, string(it.State), boolToInt(it.Pinned),
 		it.Views, it.Takes,
 		it.LeftAt.UTC().Format(time.RFC3339), shelved,
+		shedAt, string(it.ShedReason),
 		time.Now().UTC().Format(time.RFC3339))
 	if err != nil {
 		return fmt.Errorf("create item %s: %w", it.ID, err)
@@ -121,10 +126,24 @@ func (s *Store) IncrementViews(ctx context.Context, id boulevard.LibraryID, item
 //
 // `approve` runs in a separate process from `serve`, so the two can hold
 // this transaction at once. It opens deferred and upgrades to a write lock
-// at the first UPDATE, which is where SQLite can answer SQLITE_BUSY; the
-// busy_timeout pragma absorbs a short overlap, and a longer one surfaces as
-// a failed approval rather than a half-applied one, which is the outcome
-// this transaction exists to guarantee.
+// at the first UPDATE. That upgrade can fail two different ways, and only
+// one of them is what busy_timeout absorbs: an ordinary write-lock wait
+// (another writer mid-transaction right now) retries and usually succeeds
+// within the timeout, but in WAL mode a deferred transaction can instead hit
+// SQLITE_BUSY_SNAPSHOT — its read snapshot is stale because some other
+// writer committed since this transaction opened — and busy_timeout does
+// not retry that at all; it surfaces immediately. Either failure aborts the
+// transaction wholesale via the deferred Rollback above; neither leaves a
+// half-applied approval, which is the guarantee that actually holds here,
+// not "busy_timeout absorbs it." The read-path sweeps this milestone added
+// (SweepExpiredSessions, SweepExpiredItems) run inside their own
+// transactions on the same request paths as a concurrent `approve` or
+// `reshelve`, which widens the window in which one of them commits between
+// this transaction's read and its write and costs it the snapshot. Fixing
+// that is `_txlock=immediate` on the DSN, which forces every transaction to
+// take its write lock up front instead of deferring — out of scope for this
+// fix wave, since it changes the locking mode of every transaction in the
+// binary.
 func (s *Store) ApproveItem(ctx context.Context, id boulevard.LibraryID, itemID string, now time.Time) (string, error) {
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
@@ -179,7 +198,9 @@ func (s *Store) ApproveItem(ctx context.Context, id boulevard.LibraryID, itemID 
 			return "", fmt.Errorf("find the oldest shelved item: %w", err)
 		}
 		if _, err := tx.ExecContext(ctx,
-			`UPDATE items SET state = 'shed' WHERE library_id = ? AND id = ?`,
+			`UPDATE items SET state = 'shed', shed_at = ?, shed_reason = ?
+			  WHERE library_id = ? AND id = ?`,
+			now.UTC().Format(time.RFC3339), string(boulevard.ShedEvicted),
 			string(id), evicted); err != nil {
 			return "", fmt.Errorf("shed item %q: %w", evicted, err)
 		}
@@ -252,10 +273,12 @@ func scanItem(sc scanner) (boulevard.Item, error) {
 		pinned  int
 		left    string
 		shelved *string
+		shedAt  *string
+		reason  string
 	)
 	if err := sc.Scan(&it.ID, &libID, &typ, &it.Payload, &it.Note, &it.Attribution,
 		&it.CopiesTotal, &it.CopiesLeft, &state, &pinned, &it.Views, &it.Takes,
-		&left, &shelved); err != nil {
+		&left, &shelved, &shedAt, &reason); err != nil {
 		return boulevard.Item{}, err
 	}
 	it.LibraryID = boulevard.LibraryID(libID)
@@ -274,5 +297,13 @@ func scanItem(sc scanner) (boulevard.Item, error) {
 		}
 		it.ShelvedAt = &at
 	}
+	if shedAt != nil {
+		at, err := time.Parse(time.RFC3339, *shedAt)
+		if err != nil {
+			return boulevard.Item{}, fmt.Errorf("item %s shed_at: %w", it.ID, err)
+		}
+		it.ShedAt = &at
+	}
+	it.ShedReason = boulevard.ShedReason(reason)
 	return it, nil
 }

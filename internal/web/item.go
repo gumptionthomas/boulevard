@@ -15,16 +15,40 @@ import (
 // It counts a view. §7 keeps views and takes as separate numbers because
 // they answer different questions — "the internet found this" versus "three
 // neighbours wanted it" — and views deliberately drive nothing at all.
-// Neither is displayed yet: until takes can move, every item would read
-// "Taken 0 times".
+// item.html displays takes ("Taken N times", §7); it does not display
+// views, and nothing here or in the template lets views feed back into
+// shelf state.
 func (s *Server) handleItem(w http.ResponseWriter, r *http.Request) {
 	lib, ok := s.libraryFromPath(w, r)
 	if !ok {
 		return
 	}
+	// Both sweeps, on every HTML read path that can show an item. The item
+	// page is easy to forget and would otherwise serve an expired item at
+	// its own shareable URL forever: an unswept item is still `shelved`, so
+	// the state filter below passes it. A link that outlives the shelf
+	// listing is exactly what expiry exists to prevent.
+	if _, err := s.store.SweepExpiredSessions(r.Context(), s.now()); err != nil {
+		log.Printf("sessions not swept: %v", err)
+	}
+	if _, err := s.store.SweepExpiredItems(r.Context(), lib.ID, s.now()); err != nil {
+		log.Printf("items not swept: %v", err)
+	}
+
+	// A 404 here renders invalid.html rather than the stdlib's plain-text
+	// page (F8), for the same reason libraryFromPath already does: before
+	// this milestone a shelved item's URL never went stale, so the stdlib
+	// 404 was unreachable in practice. Now expiry sheds items on a schedule
+	// and a take can shed one in a tap, so someone following a shared link
+	// to an item that's since left the shelf is exactly the "stale or
+	// mistyped URL" case invalid.html exists for. invalid.html stays safe
+	// to reuse here for the same reason it's safe on an unknown slug: it
+	// names no item and no library, so it says nothing this 404 should not
+	// say — an item 404 must stay as generic as a library 404, since both
+	// have to be indistinguishable from an unknown or revoked token secret.
 	it, err := s.store.ItemByID(r.Context(), lib.ID, r.PathValue("id"))
 	if errors.Is(err, store.ErrNotFound) {
-		http.NotFound(w, r)
+		s.renderInvalid(w)
 		return
 	}
 	if err != nil {
@@ -37,7 +61,7 @@ func (s *Server) handleItem(w http.ResponseWriter, r *http.Request) {
 	// shelved: pending items skip the approval gate otherwise, and shed or
 	// released items stay reachable at a URL DESIGN.md says is not public.
 	if it.State != boulevard.ItemShelved {
-		http.NotFound(w, r)
+		s.renderInvalid(w)
 		return
 	}
 
@@ -48,10 +72,35 @@ func (s *Server) handleItem(w http.ResponseWriter, r *http.Request) {
 		log.Printf("view not recorded: %v", err)
 	}
 
+	itemBase := itemURL(lib, "")
+	view := itemView{Item: it, ItemBase: itemBase}
+	live := false
+	if sess, ok := s.liveSession(r, lib.ID); ok {
+		live = true
+		view.HasSession = true
+		// A take-state failure is not worth failing the page over either —
+		// same reasoning as the view count above. The control just falls
+		// back to its normal "Take" state, which TakeItem's own idempotent
+		// duplicate-take guard keeps safe.
+		taken, err := s.store.TakenBySession(r.Context(), sess.ID)
+		if err != nil {
+			log.Printf("takes not loaded: %v", err)
+		} else {
+			view.TakenByYou = taken[it.ID]
+			view.AtLimit = len(taken) >= maxTakes
+		}
+	}
+
 	s.render(w, http.StatusOK, "item.html", pageData{
 		Title:       lib.Name,
 		LibraryName: lib.Name,
 		ShelfURL:    shelfURL(lib),
-		Item:        it,
+		ItemBase:    itemBase,
+		// HasSession here (not just on the view) is what item.html needs to
+		// show §6's explanation when there is no session: without it, a
+		// remote reader saw a greyed "Take" control and nothing telling
+		// them why (I-3).
+		HasSession: live,
+		Item:       view,
 	})
 }

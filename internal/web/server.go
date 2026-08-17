@@ -39,9 +39,15 @@ var pageTemplates = []string{
 // mistake, and failing at construction beats failing on a steward's first
 // request.
 func New(st *store.Store, now func() time.Time) *Server {
+	// takecontrol.html is parsed into every page's set alongside layout.html.
+	// It only defines "takecontrol", never "body", so it cannot collide with
+	// a page's own body the way ParseFS over templates/*.html would (see
+	// pageTemplates' comment) — but shelf.html and item.html are the only
+	// two that actually call it.
 	tmpl := make(map[string]*template.Template, len(pageTemplates))
 	for _, name := range pageTemplates {
-		tmpl[name] = template.Must(template.ParseFS(templateFS, "templates/layout.html", "templates/"+name))
+		tmpl[name] = template.Must(template.ParseFS(templateFS,
+			"templates/layout.html", "templates/takecontrol.html", "templates/"+name))
 	}
 	return &Server{
 		store: st,

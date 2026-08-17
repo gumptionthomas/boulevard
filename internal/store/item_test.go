@@ -508,6 +508,55 @@ func approveErr(s *Store, lib boulevard.Library, itemID string, now time.Time) e
 	return err
 }
 
+// pendingTestItem creates and inserts a pending item, for tests that need
+// one already in the store rather than just constructed in memory.
+func pendingTestItem(t *testing.T, st *Store, id boulevard.LibraryID, itemID string, now time.Time) boulevard.Item {
+	t.Helper()
+	it := boulevard.Item{
+		ID: itemID, LibraryID: id, Type: boulevard.ItemLink,
+		Payload: "https://example.com/" + itemID, Note: "note for " + itemID,
+		State: boulevard.ItemPending, LeftAt: now,
+	}
+	if err := st.CreateItem(context.Background(), id, it); err != nil {
+		t.Fatalf("create pending item %s: %v", itemID, err)
+	}
+	return it
+}
+
+func TestApproveItemRecordsWhyItEvicted(t *testing.T) {
+	loc := chicago(t)
+	st := openTemp(t)
+	lib := seedLibrary(t, st)
+	now := time.Date(2026, 8, 15, 20, 25, 0, 0, loc)
+
+	if _, err := st.db.Exec(`UPDATE libraries SET slots = 1 WHERE id = ?`,
+		string(lib.ID)); err != nil {
+		t.Fatalf("set slots: %v", err)
+	}
+
+	first := shelvedTestItemAt(t, st, lib.ID, "FIRST", now.Add(-time.Hour))
+	second := pendingTestItem(t, st, lib.ID, "SECOND", now)
+
+	evicted, err := st.ApproveItem(context.Background(), lib.ID, second.ID, now)
+	if err != nil {
+		t.Fatalf("approve: %v", err)
+	}
+	if evicted != first.ID {
+		t.Fatalf("evicted %q, want %q", evicted, first.ID)
+	}
+
+	got, err := st.ItemByID(context.Background(), lib.ID, first.ID)
+	if err != nil {
+		t.Fatalf("read evicted item: %v", err)
+	}
+	if got.ShedReason != boulevard.ShedEvicted {
+		t.Errorf("shed reason = %q, want %q", got.ShedReason, boulevard.ShedEvicted)
+	}
+	if got.ShedAt == nil {
+		t.Error("shed_at was not set on the evicted item")
+	}
+}
+
 func TestRejectReleasesWithoutDeleting(t *testing.T) {
 	// §5 calls release a soft delete: a steward who rejects the wrong thing
 	// has not destroyed it.

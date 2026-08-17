@@ -56,10 +56,40 @@ CREATE INDEX IF NOT EXISTS idx_items_shelf
     ON items(library_id, state, shelved_at);
 `
 
+// addTakesAndShedReasons is Milestone 3.
+//
+// session_takes is what makes an undoable take possible without a user
+// record. ON DELETE CASCADE is load-bearing: the session sweep deletes the
+// session row and the take rows go with it, which is what bounds the link
+// to twenty-four hours. It fires only because the DSN sets
+// _pragma=foreign_keys(1) — SQLite ignores the clause silently otherwise,
+// so a test asserts the cascade rather than the schema.
+//
+// The composite primary key gives take lookups their index and makes a
+// duplicate take a constraint violation rather than a second row.
+//
+// No library_id on session_takes: §10 makes it first-class on every item,
+// token, session and setting, and a join table is none of those. Every
+// query reaches it through session_id, which is already library-scoped, and
+// under v2's one-database-per-library both parents live in the same file.
+const addTakesAndShedReasons = `
+ALTER TABLE sessions ADD COLUMN leaves_used INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE items    ADD COLUMN shed_at     TEXT;
+ALTER TABLE items    ADD COLUMN shed_reason TEXT NOT NULL DEFAULT '';
+
+CREATE TABLE IF NOT EXISTS session_takes (
+    session_id TEXT NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,
+    item_id    TEXT NOT NULL REFERENCES items(id),
+    taken_at   TEXT NOT NULL,
+    PRIMARY KEY (session_id, item_id)
+);
+`
+
 var migrations = []migration{
 	{1, schema},
 	{2, addLibrarySettings},
 	{3, createItems},
+	{4, addTakesAndShedReasons},
 }
 
 // migrate applies every migration not yet recorded, each in its own

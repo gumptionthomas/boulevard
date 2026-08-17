@@ -5,8 +5,8 @@
 // requires that the v1 single-library build never assume a singleton, so the
 // host layer is reachable later without a refactor.
 //
-// Three shapes of method follow from that, and only the third takes a
-// boulevard.LibraryID:
+// Four shapes of method follow from that, and only the third and fourth
+// take a boulevard.LibraryID:
 //
 //   - Resolution boundaries are handed an identifier and return what it
 //     names, including which library that is: LibraryBySlug, LibraryByID,
@@ -17,6 +17,18 @@
 //   - Everything else takes an explicit boulevard.LibraryID, and where it
 //     also takes something already carrying one — RecordScan — it rejects
 //     the pair if they disagree.
+//   - Session-scoped queries ask about one session's own takes rather than
+//     a shelf: TakenBySession and TakenToZeroBySession. TakenBySession
+//     takes no LibraryID, for the same reason a resolution boundary does
+//     not — a session id already names a single session, which already
+//     names its library, so a second identifier could only disagree with
+//     the first. TakenToZeroBySession takes both a LibraryID and a
+//     SessionID, because unlike TakenBySession it joins onto items and
+//     returns Item values, so the library scope items themselves require
+//     applies here too; the session id is still what keeps the result to
+//     that one session's own takes, never another session's, which is the
+//     hard requirement §5's "consumption is global, mutation is local"
+//     puts on this specific query.
 package store
 
 import (
@@ -42,6 +54,30 @@ var ErrNotFound = errors.New("not found")
 // been run. Both are the steward's mistake rather than the database's, and
 // the CLI reports them as usage errors.
 var ErrNotPending = errors.New("not pending")
+
+// ErrLimitReached is the per-session rate limit (DESIGN.md §4: 3 leaves,
+// 3 takes). Presence is attestable, not enforceable — scanning again
+// mints a new session with fresh counters, and that is not a loophole to
+// close.
+var ErrLimitReached = errors.New("session limit reached")
+
+// ErrNoCopiesLeft guards a shelved item with no copies. An item that
+// reaches zero sheds in the same transaction, so this should be
+// unreachable — except for a steward who sets default_copies = 0, which
+// shelves items with nothing to take. Not dead code.
+var ErrNoCopiesLeft = errors.New("no copies left")
+
+// ErrShelfFull is undo and re-shelve meeting a full shelf. Neither
+// evicts to make room: a stray tap must not cost a different item its
+// place, and eviction is FIFO precisely so nobody's behaviour reorders
+// the shelf.
+var ErrShelfFull = errors.New("shelf is full")
+
+// ErrNotShed distinguishes "no such item" from "that item is not in the
+// shed", the way ErrNotPending does for the approval queue. A steward
+// needs to tell a mistyped handle from a second `reshelve` on the same
+// item.
+var ErrNotShed = errors.New("item is not in the shed")
 
 // FileMode is what the database and its sidecars are kept at.
 //

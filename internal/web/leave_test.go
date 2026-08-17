@@ -65,6 +65,22 @@ func TestLeaveFormWithoutASessionIsInertNot404(t *testing.T) {
 	}
 }
 
+// TestLeaveFormAlwaysOffersAWayBack covers a dead end the acceptance run
+// found and no test did: with the submit button disabled — no session, or
+// three leaves already spent — the form had no exit but the browser's back
+// gesture. Both other secondary pages have carried this link all along.
+func TestLeaveFormAlwaysOffersAWayBack(t *testing.T) {
+	st := testStore(t)
+	addLibrary(t, st, "fairview")
+	rec := get(t, New(st, time.Now).Handler(), "/b/fairview/leave")
+	if !strings.Contains(rec.Body.String(), `href="/b/fairview/"`) {
+		t.Error("the leave form offers no way back to the shelf")
+	}
+	if !strings.Contains(rec.Body.String(), "Back to the shelf") {
+		t.Error("the way back is not labelled")
+	}
+}
+
 func TestLeaveSubmitWithoutASessionIs403(t *testing.T) {
 	st := testStore(t)
 	lib := addLibrary(t, st, "fairview")
@@ -359,6 +375,124 @@ func TestLeaveConfirmationDoesNotImplyItIsLive(t *testing.T) {
 		if !strings.Contains(body, want) {
 			t.Errorf("confirmation missing %q", want)
 		}
+	}
+}
+
+// TestLeaveSubmitAtSessionLimitIsRefusedAndExplained mirrors
+// TestTakeAtTheSessionLimitIsRefusedAndExplained in take_test.go: same
+// session id reused across every submission, since postLeave's sess
+// parameter mints a fresh session (and fresh counter) each call.
+func TestLeaveSubmitAtSessionLimitIsRefusedAndExplained(t *testing.T) {
+	st := testStore(t)
+	lib := addLibrary(t, st, "fairview")
+	now := time.Date(2026, time.August, 15, 12, 0, 0, 0, time.UTC)
+	h := New(st, func() time.Time { return now }).Handler()
+
+	sid, err := boulevard.NewSessionID(rand.Reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	tok := addAnyToken(t, st, lib)
+	if err := st.CreateSession(context.Background(), boulevard.Session{
+		ID: sid, LibraryID: lib.ID, TokenID: tok.ID,
+		CreatedAt: now, ExpiresAt: now.Add(boulevard.SessionTTL),
+	}); err != nil {
+		t.Fatal(err)
+	}
+	cookie := &http.Cookie{Name: cookieName, Value: string(sid)}
+
+	postWithCookie := func(form url.Values) *httptest.ResponseRecorder {
+		req := httptest.NewRequest(http.MethodPost, "/b/fairview/leave", strings.NewReader(form.Encode()))
+		req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+		req.AddCookie(cookie)
+		rec := httptest.NewRecorder()
+		h.ServeHTTP(rec, req)
+		return rec
+	}
+
+	for i := 0; i < 3; i++ {
+		form := goodForm()
+		form.Set("payload", "https://example.org/"+string(rune('a'+i)))
+		if rec := postWithCookie(form); rec.Code != http.StatusSeeOther {
+			t.Fatalf("leave %d: status = %d, want 303", i, rec.Code)
+		}
+	}
+
+	form := goodForm()
+	form.Set("note", "The fourth thing, composed with care.")
+	form.Set("payload", "https://example.org/kept")
+	form.Set("attribution", "the guy with the beagle")
+	rec := postWithCookie(form)
+
+	if rec.Code != http.StatusForbidden {
+		t.Fatalf("status = %d, want 403 at the session limit", rec.Code)
+	}
+	body := rec.Body.String()
+	if !strings.Contains(body, "You've left three things with this scan. Scan the card again for more.") {
+		t.Error("the 403 does not explain the session limit")
+	}
+	for _, want := range []string{
+		"The fourth thing, composed with care.",
+		"https://example.org/kept",
+		"the guy with the beagle",
+	} {
+		if !strings.Contains(body, want) {
+			t.Errorf("the at-limit 403 lost %q; the note is the part that took effort", want)
+		}
+	}
+	if !strings.Contains(body, "disabled") {
+		t.Error("the at-limit form must still be inert")
+	}
+
+	items, err := st.PendingItems(context.Background(), lib.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(items) != 3 {
+		t.Errorf("stored %d items, want 3 — the fourth must not have been stored", len(items))
+	}
+}
+
+func TestLeaveFormAtSessionLimitIsInertOnLoadToo(t *testing.T) {
+	// The rule shows up whenever the form is displayed at the limit, not
+	// only after a failed submit attempt — the same principle that keeps the
+	// no-session case visible rather than hidden.
+	st := testStore(t)
+	lib := addLibrary(t, st, "fairview")
+	now := time.Date(2026, time.August, 15, 12, 0, 0, 0, time.UTC)
+	h := New(st, func() time.Time { return now }).Handler()
+
+	sid, err := boulevard.NewSessionID(rand.Reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	tok := addAnyToken(t, st, lib)
+	if err := st.CreateSession(context.Background(), boulevard.Session{
+		ID: sid, LibraryID: lib.ID, TokenID: tok.ID,
+		CreatedAt: now, ExpiresAt: now.Add(boulevard.SessionTTL),
+	}); err != nil {
+		t.Fatal(err)
+	}
+	for i := 0; i < maxLeaves; i++ {
+		if err := st.IncrementLeaves(context.Background(), sid); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	req := httptest.NewRequest(http.MethodGet, "/b/fairview/leave", nil)
+	req.AddCookie(&http.Cookie{Name: cookieName, Value: string(sid)})
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200 — show the rule, do not hide the feature", rec.Code)
+	}
+	body := rec.Body.String()
+	if !strings.Contains(body, "You've left three things with this scan. Scan the card again for more.") {
+		t.Error("the form does not explain the session limit on a plain GET")
+	}
+	if !strings.Contains(body, "disabled") {
+		t.Error("the form must be inert on a plain GET at the limit")
 	}
 }
 

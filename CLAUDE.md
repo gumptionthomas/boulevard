@@ -4,15 +4,15 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Repository state
 
-Milestones 0 through 2 are built: `boulevard booklet` prints the twelve-card booklet and the browse sign, `boulevard serve` runs the shelf, and `boulevard queue` / `approve` / `reject` run the approval CLI. Scanning a card grants a 24-hour session; a session can leave an item, which waits `pending` until a steward approves it onto the shelf or rejects it. Taking is not built yet — that is Milestone 3.
+Milestones 0 through 3 are built: `boulevard booklet` prints the twelve-card booklet and the browse sign, `boulevard serve` runs the shelf, `boulevard queue` / `approve` / `reject` run the approval CLI, and `boulevard shed` / `reshelve` / `release` run the shed. Scanning a card grants a 24-hour session; a session can leave an item, which waits `pending` until a steward approves it onto the shelf or rejects it, and can take an item, which is undoable until the session ends. Items shed by eviction, expiry, or being taken to zero copies wait for a steward to re-shelve or release them. Steward admin (force-activate, extend, revoke, new booklet) is not built yet — that is Milestone 4.
 
 ```
-cmd/boulevard/     main.go booklet.go serve.go queue.go version.go
+cmd/boulevard/     main.go booklet.go serve.go queue.go shed.go version.go
 internal/booklet/  the PDF: cards, cover, QR, geometry, layout
 internal/boulevard/ domain types only, stdlib-only: Date, Library, Item, Token, Session, ids
-internal/store/    SQLite: schema.sql, migrations, library.go, item.go, token.go, session.go
+internal/store/    SQLite: schema.sql, migrate.go, library.go, item.go, token.go, session.go, take.go, shed.go, sweep.go
 internal/tokens/   pure: periods, secrets, Validate
-internal/web/      HTTP: server, routes, scan, shelf, leave, item, render, logging, templates/
+internal/web/      HTTP: server, routes, scan, shelf, leave, item, take, render, logging, templates/
 internal/version/  version, commit, repo URL for the AGPL footer
 ```
 
@@ -43,9 +43,12 @@ The CLI as it stands (`DESIGN.md` §8; `init` is not built yet):
 ```
 boulevard booklet --name "..." --location "..." --base-url https://... [--out booklet.pdf] [--db boulevard.db]
 boulevard serve   [--db boulevard.db] [--addr :8080]
-boulevard queue   [--db boulevard.db] [--slug SLUG]
-boulevard approve [--db boulevard.db] [--slug SLUG] <id>
-boulevard reject  [--db boulevard.db] [--slug SLUG] <id>
+boulevard queue    [--db boulevard.db] [--slug SLUG]
+boulevard approve  [--db boulevard.db] [--slug SLUG] <id>
+boulevard reject   [--db boulevard.db] [--slug SLUG] <id>
+boulevard shed     [--db boulevard.db] [--slug SLUG]
+boulevard reshelve [--db boulevard.db] [--slug SLUG] <id>
+boulevard release  [--db boulevard.db] [--slug SLUG] <id>
 boulevard version
 ```
 
@@ -53,30 +56,30 @@ boulevard version
 
 ## Build order (§13)
 
-0 booklet ✅ · 1 presence ✅ (scan → session cookie) · 2 shelf ✅ (items, leave form, approval queue) · **3 mechanics next** (copies, take, FIFO eviction, expiry, rate limits) · 4 steward admin (force-activate, extend, revoke, new booklet) · 5 polish · 6 (v2) host layer.
+0 booklet ✅ · 1 presence ✅ (scan → session cookie) · 2 shelf ✅ (items, leave form, approval queue) · 3 mechanics ✅ (take, undo, session sweeping, expiry, the shed, rate limits) · **4 steward admin next** (force-activate, extend, revoke, new booklet) · 5 polish · 6 (v2) host layer.
 
 **Section numbers shifted on 15 Aug 2026.** `DESIGN.md` §11 became pop-up boulevards, pushing Later, Build order and Open to §12, §13 and §14. Specs and plans under `docs/superpowers/` predate that and cite the old numbers — in those files, "§12" means build order and "§11" means Later. They are dated records of what was decided at the time, so they were left as written rather than rewritten to match.
 
-Milestone 1 honors a `revoked` token state it never sets, and enforces no rate limits — both wait for the milestones that own them. Milestone 2 adds items to a shelf page that already existed rather than building the page and the items together, and approval is a CLI (`queue`/`approve`/`reject`), not a web admin — that is Milestone 4.
+Milestone 1 honors a `revoked` token state it never sets, and enforces no rate limits — both wait for the milestones that own them. Milestone 2 adds items to a shelf page that already existed rather than building the page and the items together, and approval is a CLI (`queue`/`approve`/`reject`), not a web admin — that is Milestone 4. Milestone 3 built copies, take, and FIFO eviction on top of what Milestone 2 already shipped in the approval transaction, added session sweeping as a correction to Milestone 1 (see Invariants below), and gave the shed the approval queue's CLI shape rather than a web admin — that is still Milestone 4.
 
 ## Architecture
 
 **Thesis: consumption is global, mutation is local.** Anyone may read a shelf. Only someone who scanned the rotating code at the physical box may change it. Presence is the credential; there are no passerby accounts. Every design decision follows from this — if a feature request violates it, the answer is no.
 
-**Take is a write.** It decrements a finite shelf, so it is gated identically to leave. Do not treat it as a read-side action.
+**Take is a write.** It decrements a finite shelf, so it is gated identically to leave. Do not treat it as a read-side action. It is also `POST`-only: a `GET` take URL would be shareable, prefetchable, and — because it redirects to the item's own payload — an open redirect wearing the shelf's domain.
 
 **Two codes, one physical artifact.** A stable *browse* QR is mounted permanently and encodes the host root. A rotating monthly *leave/take* QR comes from a printed 12-card booklet and encodes `/s/<token>`. The booklet is a permanent part of the design, not a placeholder for hardware.
 
 **Multi-tenancy is architected in v1, shipped in v2 (§10).** v1 ships one library, but nothing may assume a singleton: `library_id` is a first-class key on every item, token, session, and setting; every query is library-scoped; canonical routes are `/b/:slug/...` (single-library mode may redirect `/`); token secrets are unique host-wide, not per library. v2 storage is one SQLite file per library plus a registry DB — which is what makes ejection a file copy rather than an export format.
 
-**What Milestone 1 settled, and why it looks odd.** The session cookie is an opaque 128-bit random id and is **not signed**: the server-side row is the source of truth, so a signature would add a key to store, rotate and lose while preventing no forgery the lookup does not already reject — and it would break §10's promise that ejecting a library is a file copy. Session expiry is checked on read; there is no sweeper for a table holding a handful of rows. Token activation moves **forward only**: an older card in its grace window still grants a session and still records `first_seen_at`, but must not rewind which card the steward thinks is in the door. HTML responses are `Cache-Control: no-store` plus `Vary: Cookie`, because the shelf's body differs entirely depending on the session cookie and this branch ships no TLS, so a reverse proxy or CDN is likely in front of it. Rationale for all four: `docs/superpowers/specs/2026-08-14-presence-design.md`.
+**What Milestone 1 settled, and why it looks odd.** The session cookie is an opaque 128-bit random id and is **not signed**: the server-side row is the source of truth, so a signature would add a key to store, rotate and lose while preventing no forgery the lookup does not already reject — and it would break §10's promise that ejecting a library is a file copy. Session expiry is checked on read; Milestone 1 shipped no sweeper for a table holding a handful of rows, and Milestone 3 corrected that once a second feature needed sessions to actually go away (see Invariants below) — the sweep still runs on read paths, never a background goroutine. Token activation moves **forward only**: an older card in its grace window still grants a session and still records `first_seen_at`, but must not rewind which card the steward thinks is in the door. HTML responses are `Cache-Control: no-store` plus `Vary: Cookie`, because the shelf's body differs entirely depending on the session cookie and this branch ships no TLS, so a reverse proxy or CDN is likely in front of it. Rationale for all four: `docs/superpowers/specs/2026-08-14-presence-design.md`.
 
 ## Invariants — do not "fix" these
 
 Each of these looks like an oversight and is not. The reasoning is in `DESIGN.md`.
 
 - **No host-wide public feed** ("recent across all shelves"). Four lines of code, would be the most-visited page, and is the algorithmic feed entering through the service entrance. A map sends you to a place; a feed brings places to you.
-- **`views` drives nothing.** Views and takes are separate counters and both are displayed, but only takes affect shelf state. Attention-weighted eviction rebuilds the feed this project reacts against.
+- **`views` drives nothing.** Views and takes are separate counters. Takes are displayed on the item page (§7); views are recorded but not yet displayed anywhere — that is a §7 matter this milestone did not scope, not a gap to close here. Regardless of whether views are ever shown, only takes may affect shelf state. Attention-weighted eviction rebuilds the feed this project reacts against.
 - **Eviction is FIFO on the oldest non-pinned item.** Deliberately dumb, deliberately not popularity-aware.
 - **Token periods are explicit stored calendar dates, never TOTP-derived.** Clock drift, DST, and a steward swapping the card late must be inspectable and fixable, not silent auth failures. Validation carries a **7-day grace** on both ends. Outside it, a valid card gets a diagnostic page rather than the generic failure page — and *which* one depends on the side: `Expired` says the card is out of date and names the day it stopped, `NotYet` says it is not in use yet and names the day it starts. Do not merge them back into one outcome; the copy is wrong for one of the two. A second reason this must stay explicit rather than derived: §11's pop-up boulevards run periods of hours or days, so nothing may assume a period is a calendar month. Widening `Date` to a timestamp is a known future migration; deriving the boundary from a clock function is not.
 - **Token secrets are stored in plaintext.** Deliberate: a lost booklet is far likelier than server compromise, and reprinting must always work. Do not hash them. It follows that a secret **is** the shelf's write credential: `boulevard.db` and the PDF are written `0600`, and nothing may log a scan URL's path, put a secret in an error message, or copy the database anywhere loose.
@@ -86,7 +89,9 @@ Each of these looks like an oversight and is not. The reasoning is in `DESIGN.md
 - **GPS/lat/lng is display-only and never an auth factor.**
 - **`--base-url` is required and verified before any PDF is written.** A wrong browse sign is the one permanent artifact.
 - **`note` on an item is required.** The note is the point; the media is the excuse.
-- **No item stores a session reference.** Sessions are never swept, so such a column would be a durable link between everything one person left — the user record §1 forbids. Per-session limits are counted on the session row instead. This also means a revoked card's items cannot be retracted, which is the accepted cost.
+- **Sessions are swept, lazily, on the shelf and item read paths, plus once at `serve` startup — not by a background goroutine.** Expiry is still checked on read regardless; sweeping and the read check are belt and braces, not alternatives. This bounds any session-scoped link to the session's 24 hours **only under traffic**: the read-path sweep needs someone to load the shelf, and DESIGN.md itself says a quiet box is the common case, not the exception. The startup sweep is a cheap belt for that — it bounds the link on a restart even with zero traffic — but it is not a substitute for the qualifier: between restarts, on a box nobody visits, an expired session's take rows outlive 24 hours for as long as the session row does. What makes an undoable take possible is the sweep eventually running, not a hard 24-hour ceiling.
+- **A left item still stores no session reference, even though sessions are now swept.** The asymmetry with take is deliberate, not an oversight: a left item is public and permanent, so a link from it would point at durable data from the other side and survive the sweep — everything one person left, kept forever, the user record §1 forbids. A take is a private act against a shelf, so it links (in `session_takes`) and that row is deleted with the session, which keeps it well under 24 hours old and out of user-record territory. Per-session leave limits are still counted on a bare counter on the session row instead. This also means a revoked card's *left* items still cannot be retracted, which is the accepted cost.
+- **The request log never carries a remote address or a session id.** `logRequests` (`internal/web/logging.go`) logs the method, redacted path, status and duration — item ids included — and stops there on purpose. Add a remote address or a session id to that line and `POST /b/x/i/ABC/take` becomes, one log line at a time, exactly the durable "who took what" record `session_takes`'s 24-hour, swept-with-the-session design exists to avoid being — logs are not swept, do not expire, and are the first thing that ends up in a support thread or a backup. "Log the client IP so the steward can debug" is the natural-sounding request that would rebuild it silently; the answer is no, for the same reason a left item stores no session reference.
 - **Nothing fetches a submitted URL.** No titles, no thumbnails, no embeds, no oEmbed. An outbound request per stranger submission is an SSRF surface and a request amplifier, and a hostile URL could borrow a trustworthy title. The shelf shows a domain.
 - **Video is never hosted** — a YouTube/Vimeo/PeerTube URL is a `link` that renders an embed.
 - **Steward additions go through the same presence flow**, even though the steward owns the server.

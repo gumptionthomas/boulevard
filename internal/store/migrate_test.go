@@ -106,6 +106,35 @@ func TestMigrateAcceptsItsOwnSchemaVersion(t *testing.T) {
 	}
 }
 
+func TestMigration4AddsShedColumnsAndSessionTakes(t *testing.T) {
+	st := openTemp(t)
+
+	var version int
+	if err := st.db.QueryRow(
+		`SELECT MAX(version) FROM schema_migrations`).Scan(&version); err != nil {
+		t.Fatalf("read schema version: %v", err)
+	}
+	if version < 4 {
+		t.Fatalf("schema version = %d, want at least 4", version)
+	}
+
+	for _, q := range []string{
+		`SELECT leaves_used FROM sessions LIMIT 1`,
+		`SELECT shed_at, shed_reason FROM items LIMIT 1`,
+		`SELECT session_id, item_id, taken_at FROM session_takes LIMIT 1`,
+	} {
+		// SetMaxOpenConns(1) means an unclosed Rows holds the database's only
+		// connection: a second Query in this loop would then block forever
+		// waiting for a connection the first iteration never released.
+		rows, err := st.db.Query(q)
+		if err != nil {
+			t.Errorf("%s: %v", q, err)
+			continue
+		}
+		rows.Close()
+	}
+}
+
 func TestMigrateDefaultsMatchDesign(t *testing.T) {
 	ctx, s := context.Background(), openTemp(t)
 	lib := makeLibrary(t)

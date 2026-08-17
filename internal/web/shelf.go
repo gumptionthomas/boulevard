@@ -2,6 +2,7 @@ package web
 
 import (
 	"errors"
+	"log"
 	"net/http"
 
 	"github.com/gumptionthomas/boulevard/internal/boulevard"
@@ -35,9 +36,61 @@ type pageData struct {
 	AwaitingApproval bool
 	Form             boulevard.Submission
 	Errors           boulevard.FieldErrors
-	Items            []boulevard.Item
-	Item             boulevard.Item
+	ItemViews        []itemView
+	Item             itemView
+	// TakenToZero is this session's own band: items in this library it took
+	// the last copy of. TakeItem sheds an item the instant it reaches zero,
+	// so without this the undo for exactly that take — the one a stray tap
+	// costs the most — exists on no page the taker can reach (spec task-6
+	// I-1). Only ever populated for a live session, and only ever that
+	// session's own takes: consumption is global, mutation is local, and
+	// this is the one list that must not blur that. See renderShelf.
+	TakenToZero []itemView
+	// ItemBase is this library's item URL prefix ("/b/slug/i/"). The
+	// templates build every item, take and untake link off it rather than
+	// each calling itemURL itself.
+	ItemBase string
+	// Notice carries a refusal's explanation back onto the shelf — the take
+	// and untake handlers always re-render the shelf on failure, whichever
+	// page the control was pressed on (see refuseTake in take.go).
+	Notice string
+	// AtLeaveLimit is set when this session has left its three (DESIGN.md
+	// §4). Like AtLimit on itemView, the form goes inert with an explanation
+	// rather than disappearing — show the rule, do not hide the feature.
+	AtLeaveLimit bool
 }
+
+// itemView is one item plus what this viewer may do with it. The template
+// must not work that out itself: the same shelf URL renders four different
+// controls depending on the cookie, and a branch spread across two
+// templates is how they drift apart.
+type itemView struct {
+	boulevard.Item
+	// TakenByYou is set when this session already took a copy, which turns
+	// the control into "Taken / Put it back".
+	TakenByYou bool
+	// AtLimit is set when this session has taken its three. The control
+	// goes inert with an explanation rather than disappearing — show the
+	// rule, do not hide the feature (§6).
+	AtLimit bool
+	// HasSession and ItemBase duplicate pageData fields onto the view
+	// itself. They have to: the take-control markup is factored into a
+	// shared `{{define "takecontrol"}}` block (shelf.html and item.html
+	// both call it), and `{{template "name" pipeline}}` resets `$` to
+	// pipeline inside the called template — a well-known text/template
+	// trap, and a second one after Milestone 1's same-named-block
+	// collision. `$.HasSession`/`$.ItemBase` would resolve against the
+	// itemView, not the page's pageData, and fail. Carrying both directly
+	// on the view sidesteps that instead of relying on a `$` that will not
+	// point where a reader expects once it is inside a called template.
+	HasSession bool
+	ItemBase   string
+}
+
+// Takeable reports whether the control renders at all. A pinned item shows
+// nothing: it has no copies and cannot be taken (§5), so there is no rule to
+// explain — a pin is furniture, not stock.
+func (v itemView) Takeable() bool { return !v.Pinned }
 
 // handleRoot redirects to the sole library, or 404s.
 //
@@ -68,24 +121,99 @@ func (s *Server) handleShelf(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
+	s.renderShelf(w, r, lib, http.StatusOK, "")
+}
+
+// renderShelf loads the shelf and draws it. It is the one place that
+// decides a take control's state, so both the shelf and (via handleItem) a
+// single item's page read the same answer rather than each working it out.
+//
+// msg, when non-empty, is a refusal's explanation carried onto the shelf —
+// handleTake and handleUntake re-render here on failure regardless of which
+// page the control was on.
+func (s *Server) renderShelf(w http.ResponseWriter, r *http.Request, lib boulevard.Library, status int, msg string) {
+	// Both sweeps, on every HTML read path that can show an item. The item
+	// page is easy to forget and would otherwise serve an expired item at
+	// its own shareable URL forever: an unswept item is still `shelved`, so
+	// the state filter passes it. A link that outlives the shelf listing is
+	// exactly what expiry exists to prevent.
+	if _, err := s.store.SweepExpiredSessions(r.Context(), s.now()); err != nil {
+		log.Printf("sessions not swept: %v", err)
+	}
+	if _, err := s.store.SweepExpiredItems(r.Context(), lib.ID, s.now()); err != nil {
+		log.Printf("items not swept: %v", err)
+	}
+
 	items, err := s.store.ShelvedItems(r.Context(), lib.ID)
 	if err != nil {
 		http.Error(w, "database unavailable", http.StatusInternalServerError)
 		return
 	}
+
 	data := pageData{
 		Title:       lib.Name,
 		LibraryName: lib.Name,
 		Location:    lib.LocationLabel,
 		LeaveURL:    leaveURL(lib),
 		ShelfURL:    shelfURL(lib),
-		Items:       items,
+		ItemBase:    itemURL(lib, ""),
+		Notice:      msg,
 	}
-	if sess, live := s.liveSession(r, lib.ID); live {
+
+	sess, live := s.liveSession(r, lib.ID)
+	if live {
 		data.HasSession = true
 		data.Deadline = humanDeadline(sess.ExpiresAt, s.now())
 	}
-	s.render(w, http.StatusOK, "shelf.html", data)
+
+	var taken map[string]bool
+	if live {
+		taken, err = s.store.TakenBySession(r.Context(), sess.ID)
+		if err != nil {
+			http.Error(w, "database unavailable", http.StatusInternalServerError)
+			return
+		}
+	}
+	atLimit := live && len(taken) >= maxTakes
+
+	views := make([]itemView, len(items))
+	for i, it := range items {
+		views[i] = itemView{
+			Item:       it,
+			TakenByYou: taken[it.ID],
+			AtLimit:    atLimit,
+			HasSession: live,
+			ItemBase:   data.ItemBase,
+		}
+	}
+	data.ItemViews = views
+
+	// The session's own take-to-zero band (I-1). Scoped to sess.ID, fetched
+	// only when live: no session means no join key, so this is skipped
+	// entirely rather than ever risking a query that could answer for
+	// nobody-in-particular. Every entry here has a session_takes row for
+	// this session by construction (that is what the query joins on), so
+	// TakenByYou is unconditionally true — there is nothing left to take,
+	// only to put back.
+	if live {
+		shedTaken, err := s.store.TakenToZeroBySession(r.Context(), lib.ID, sess.ID)
+		if err != nil {
+			http.Error(w, "database unavailable", http.StatusInternalServerError)
+			return
+		}
+		band := make([]itemView, len(shedTaken))
+		for i, it := range shedTaken {
+			band[i] = itemView{
+				Item:       it,
+				TakenByYou: true,
+				HasSession: true,
+				ItemBase:   data.ItemBase,
+			}
+		}
+		data.TakenToZero = band
+	}
+
+	s.render(w, status, "shelf.html", data)
 }
 
 func (s *Server) handleAbout(w http.ResponseWriter, r *http.Request) {

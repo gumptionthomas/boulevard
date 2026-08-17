@@ -21,6 +21,13 @@ import (
 // in the one file a steward pastes into a support thread, and would keep it
 // there after the card is revoked. Session ids are never logged at all:
 // they live in a cookie, and nothing here reads headers.
+//
+// Nor is a remote address logged. This line already carries item ids
+// (they're in the path); add a session id or an IP next to one and a take's
+// log line becomes exactly the durable "who took what" record
+// session_takes is engineered not to be (CLAUDE.md's invariants). Do not
+// add either for debugging — that is the natural-sounding change that would
+// rebuild it silently.
 func logRequests(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		start := time.Now()
