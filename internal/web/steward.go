@@ -214,20 +214,65 @@ func (s *Server) handleStewardLogout(w http.ResponseWriter, r *http.Request) {
 	http.Redirect(w, r, stewardPath(lib)+"login", http.StatusSeeOther)
 }
 
-// handleStewardHub is a stub: it proves the gate works end to end, but the
-// hub's real content (counts, links to queue/shelf/shed/settings) is a
-// later task in this milestone.
+// handleStewardHub answers the one question the hub exists for: is there
+// anything for me? Most visits find nothing waiting — a steward checks far
+// more often than they act — so the common path is the empty state, not
+// the four-row summary; see steward-hub.html for why that state gets real
+// design attention rather than reading as a blank page.
+//
+// The three list calls run one after another rather than nested. Each of
+// PendingItems, ShelvedItems and ShedItems returns a slice and closes its
+// own *sql.Rows before returning; SetMaxOpenConns(1) means a second query
+// issued while the first's rows were still open would hang the one
+// connection every request serializes through, not merely error.
 func (s *Server) handleStewardHub(w http.ResponseWriter, r *http.Request) {
 	lib, _, ok := s.requireSteward(w, r)
 	if !ok {
 		return
 	}
+
+	pending, err := s.store.PendingItems(r.Context(), lib.ID)
+	if err != nil {
+		http.Error(w, "database unavailable", http.StatusInternalServerError)
+		return
+	}
+	shelved, err := s.store.ShelvedItems(r.Context(), lib.ID)
+	if err != nil {
+		http.Error(w, "database unavailable", http.StatusInternalServerError)
+		return
+	}
+	shed, err := s.store.ShedItems(r.Context(), lib.ID)
+	if err != nil {
+		http.Error(w, "database unavailable", http.StatusInternalServerError)
+		return
+	}
+
+	pinned := 0
+	for _, it := range shelved {
+		if it.Pinned {
+			pinned++
+		}
+	}
+	// Keyed by the human label (Label()), not the raw ShedReason, since the
+	// template renders this straight into the page and the raw values
+	// ("evicted", "taken") are the CLI/store vocabulary, not shelf copy.
+	shedWhy := map[string]int{}
+	for _, it := range shed {
+		shedWhy[it.ShedReason.Label()]++
+	}
+
 	s.render(w, http.StatusOK, "steward-hub.html", stewardData{
 		Title:       "Steward — " + lib.Name,
 		LibraryName: lib.Name,
 		ShelfURL:    shelfURL(lib),
 		StewardURL:  stewardPath(lib),
 		Library:     lib,
+		Waiting:     len(pending),
+		Shelved:     len(shelved),
+		Slots:       lib.Slots,
+		Pinned:      pinned,
+		Shed:        len(shed),
+		ShedWhy:     shedWhy,
 	})
 }
 

@@ -3,7 +3,44 @@
 <main>
   <div class="site">{{.LibraryName}}</div>
   <h1>Steward</h1>
-  <p class="dim">The hub. Filled in by Milestone 4a's Task 6.</p>
+  {{if and (eq .Waiting 0) (eq .Shelved 0) (eq .Shed 0)}}
+    {{/* The state a steward sees on most visits: walking past their own box
+         and nothing needing them. DESIGN.md §6 calls the public empty
+         state arguably the most important screen and asks for real design
+         attention; this is its admin counterpart, so it gets the same
+         .empty treatment shelf.html gives the public shelf rather than
+         reading as a blank or broken page. */}}
+    <div class="empty">
+      <h2>Nothing needs you.</h2>
+      <p class="dim">{{.Shelved}} of {{.Slots}} slots are filled. Nothing is waiting, and the shed is empty.</p>
+    </div>
+  {{else}}
+    <a class="row" href="{{.StewardURL}}queue">
+      <span class="row-label">Waiting for you
+        <span class="row-detail">The approval queue</span>
+      </span>
+      <span class="row-count">{{.Waiting}}</span>
+    </a>
+    <a class="row" href="{{.StewardURL}}shelf">
+      <span class="row-label">On the shelf
+        <span class="row-detail">{{.Shelved}} of {{.Slots}} slots{{if .Pinned}} · {{.Pinned}} pinned{{end}}</span>
+      </span>
+      <span class="row-count">{{.Shelved}}</span>
+    </a>
+    <a class="row" href="{{.StewardURL}}shed">
+      <span class="row-label">In the shed
+        <span class="row-detail">
+          {{if .Shed}}{{range $reason, $n := .ShedWhy}}<span class="tag">{{$n}} {{$reason}}</span>{{end}}{{else}}Nothing here{{end}}
+        </span>
+      </span>
+      <span class="row-count">{{.Shed}}</span>
+    </a>
+    <a class="row" href="{{.StewardURL}}settings">
+      <span class="row-label">Settings
+        <span class="row-detail">Slots, copies, expiry, approval</span>
+      </span>
+    </a>
+  {{end}}
   <a class="btn" href="{{.ShelfURL}}">Back to the shelf</a>
 </main>
 {{end}}

@@ -32,6 +32,74 @@ func stewardServer(t *testing.T) (*store.Store, boulevard.Library, string) {
 	return st, lib, key
 }
 
+// stewardServerWithItems builds on stewardServer with a small shelf: two
+// items waiting in the approval queue, one shelved, and one shed — enough
+// for the hub's four rows to each show a real, distinguishable number.
+// Items are seeded directly through the store (CreateItem, ApproveItem,
+// RemoveItem), the same fixture style take_test.go's takeServer already
+// established, rather than driving them through the leave/approve HTTP
+// routes this test has no need to exercise.
+func stewardServerWithItems(t *testing.T) (*store.Store, boulevard.Library, string, http.Handler) {
+	t.Helper()
+	ctx := context.Background()
+	st, lib, key := stewardServer(t)
+	now := time.Date(2026, time.August, 15, 12, 0, 0, 0, time.UTC)
+
+	newItem := func(note string) boulevard.Item {
+		id, err := boulevard.RandomBase32(rand.Reader, boulevard.EntropyBytes)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return boulevard.Item{
+			ID: id, LibraryID: lib.ID, Type: boulevard.ItemText, Payload: "x",
+			Note: note, State: boulevard.ItemPending, LeftAt: now,
+		}
+	}
+
+	for _, note := range []string{"waiting one", "waiting two"} {
+		it := newItem(note)
+		if err := st.CreateItem(ctx, lib.ID, it); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	shelved := newItem("shelved")
+	if err := st.CreateItem(ctx, lib.ID, shelved); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := st.ApproveItem(ctx, lib.ID, shelved.ID, now); err != nil {
+		t.Fatal(err)
+	}
+
+	// Shelve, then take it down again, so ShedItems has one row shed for
+	// "removed" rather than requiring eviction or expiry machinery here.
+	shed := newItem("shed")
+	if err := st.CreateItem(ctx, lib.ID, shed); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := st.ApproveItem(ctx, lib.ID, shed.ID, now); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.RemoveItem(ctx, lib.ID, shed.ID, now); err != nil {
+		t.Fatal(err)
+	}
+
+	h := New(st, func() time.Time { return now }).Handler()
+	return st, lib, key, h
+}
+
+// loginAsSteward posts the steward key and returns the session cookie the
+// login set, failing the test if login did not succeed.
+func loginAsSteward(t *testing.T, h http.Handler, lib boulevard.Library, key string) *http.Cookie {
+	t.Helper()
+	rec := postForm(t, h, "/b/"+lib.Slug+"/steward/login", url.Values{"key": {key}}, nil)
+	c := cookieNamed(rec, "bl_steward")
+	if c == nil {
+		t.Fatal("login did not set a bl_steward cookie")
+	}
+	return c
+}
+
 // cookieNamed finds a cookie the handler set on the response, or nil.
 func cookieNamed(rec *httptest.ResponseRecorder, name string) *http.Cookie {
 	for _, c := range rec.Result().Cookies() {
@@ -181,5 +249,59 @@ func TestStewardHubRendersWithALiveSession(t *testing.T) {
 	rec := getWithCookie(t, h, "/b/"+lib.Slug+"/steward/", c)
 	if rec.Code != http.StatusOK {
 		t.Errorf("status = %d, want 200 with a live session", rec.Code)
+	}
+}
+
+func TestHubCountsWhatNeedsTheSteward(t *testing.T) {
+	// two waiting, one shelved, one shed
+	st, lib, key, h := stewardServerWithItems(t)
+	_ = st
+	c := loginAsSteward(t, h, lib, key)
+
+	rec := getWithCookie(t, h, "/b/"+lib.Slug+"/steward/", c)
+	body := rec.Body.String()
+
+	if !strings.Contains(body, "Waiting for you") {
+		t.Error("no waiting row")
+	}
+	if !strings.Contains(body, "2") {
+		t.Error("the waiting count is not shown")
+	}
+}
+
+// The state a steward sees most. §6 calls the public empty state arguably
+// the most important screen; this is its admin counterpart.
+func TestHubSaysNothingNeedsYouWhenNothingDoes(t *testing.T) {
+	st, lib, key := stewardServer(t)
+	h := New(st, time.Now).Handler()
+	c := loginAsSteward(t, h, lib, key)
+
+	rec := getWithCookie(t, h, "/b/"+lib.Slug+"/steward/", c)
+	if !strings.Contains(rec.Body.String(), "Nothing needs you") {
+		t.Error("an idle box does not say so")
+	}
+}
+
+// Beyond the brief's two given tests: the shelf row and shed row both carry
+// numbers no other assertion here pins down, so a handler that swapped
+// Shelved/Slots or dropped the reason tally would still pass the two tests
+// above.
+func TestHubShowsSlotsAndTheShedBreakdown(t *testing.T) {
+	_, lib, key, h := stewardServerWithItems(t)
+	c := loginAsSteward(t, h, lib, key)
+
+	rec := getWithCookie(t, h, "/b/"+lib.Slug+"/steward/", c)
+	body := rec.Body.String()
+
+	// stewardServerWithItems shelves one item on a fresh library, whose
+	// Slots comes from migration 2's default (12) since CreateLibrary
+	// never writes the settings columns itself.
+	if !strings.Contains(body, "1 of 12 slots") {
+		t.Errorf("shelf row does not show 1 of 12 slots:\n%s", body)
+	}
+	// RemoveItem sheds with reason "removed", whose Label() is "you took
+	// it down" (boulevard.ShedReason.Label, internal/boulevard/item.go).
+	if !strings.Contains(body, "you took it down") {
+		t.Errorf("shed row does not break down the one removed item:\n%s", body)
 	}
 }
