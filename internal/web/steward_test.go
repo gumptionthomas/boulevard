@@ -21,7 +21,16 @@ func stewardServer(t *testing.T) (*store.Store, boulevard.Library, string) {
 	t.Helper()
 	st := testStore(t)
 	lib := addLibrary(t, st, "fairview")
+	return st, lib, armWithStewardKey(t, st, lib)
+}
 
+// armWithStewardKey generates a steward key for an already-created library
+// and stores its hash, returning the plaintext key. Factored out of
+// stewardServer so a test needing two armed libraries (the cross-library
+// session test below) does not have to duplicate the key-generation
+// boilerplate.
+func armWithStewardKey(t *testing.T, st *store.Store, lib boulevard.Library) string {
+	t.Helper()
 	key, err := boulevard.NewStewardKey(rand.Reader)
 	if err != nil {
 		t.Fatal(err)
@@ -29,7 +38,7 @@ func stewardServer(t *testing.T) (*store.Store, boulevard.Library, string) {
 	if err := st.SetStewardKeyHash(context.Background(), lib.ID, boulevard.HashStewardKey(key)); err != nil {
 		t.Fatal(err)
 	}
-	return st, lib, key
+	return key
 }
 
 // stewardServerWithItems builds on stewardServer with a small shelf: two
@@ -159,6 +168,21 @@ func TestStewardRoutes404BeforeAKeyIsSet(t *testing.T) {
 	}
 }
 
+// The 404-before-a-key gate is exercised by GET in the test above, but the
+// login POST is the one unauthenticated write endpoint on this server (spec
+// §2 names it explicitly) — it goes through the same stewardKeyed call, but
+// that is worth pinning directly rather than by inference.
+func TestStewardLoginPOSTWithNoKeySetIs404(t *testing.T) {
+	st := testStore(t)
+	lib := addLibrary(t, st, "fairview")
+	h := New(st, time.Now).Handler()
+
+	rec := postForm(t, h, "/b/"+lib.Slug+"/steward/login", url.Values{"key": {"anything"}}, nil)
+	if rec.Code != http.StatusNotFound {
+		t.Errorf("status = %d, want 404 before a key is set", rec.Code)
+	}
+}
+
 func TestStewardLoginWithTheRightKeySetsASession(t *testing.T) {
 	st, lib, key := stewardServer(t)
 	h := New(st, time.Now).Handler()
@@ -216,6 +240,14 @@ func TestStewardCookieIsHttpOnlyAndStrict(t *testing.T) {
 	if c.SameSite != http.SameSiteStrictMode {
 		t.Error("cookie is not SameSite=Strict — every steward route mutates")
 	}
+	// addLibrary sets BaseURL to an https:// origin, so Secure must follow.
+	if !c.Secure {
+		t.Error("cookie is not Secure for an https:// library")
+	}
+	wantPath := "/b/" + lib.Slug + "/steward/"
+	if c.Path != wantPath {
+		t.Errorf("cookie Path = %q, want %q — expireStewardCookie clears the same path on logout", c.Path, wantPath)
+	}
 }
 
 func TestStewardLogoutEndsTheSession(t *testing.T) {
@@ -254,8 +286,7 @@ func TestStewardHubRendersWithALiveSession(t *testing.T) {
 
 func TestHubCountsWhatNeedsTheSteward(t *testing.T) {
 	// two waiting, one shelved, one shed
-	st, lib, key, h := stewardServerWithItems(t)
-	_ = st
+	_, lib, key, h := stewardServerWithItems(t)
 	c := loginAsSteward(t, h, lib, key)
 
 	rec := getWithCookie(t, h, "/b/"+lib.Slug+"/steward/", c)
@@ -303,5 +334,82 @@ func TestHubShowsSlotsAndTheShedBreakdown(t *testing.T) {
 	// it down" (boulevard.ShedReason.Label, internal/boulevard/item.go).
 	if !strings.Contains(body, "you took it down") {
 		t.Errorf("shed row does not break down the one removed item:\n%s", body)
+	}
+}
+
+// stewardSession compares sess.LibraryID != lib.ID and fails closed, but
+// nothing exercised it: in single-library mode nothing would notice if the
+// line were deleted, which makes this the §10 rule this milestone is most
+// likely to lose silently. Modeled on TestTakeWithAnotherLibrarysSessionIs403
+// and TestLeaveSubmitWithAnotherLibrarysSessionIs403 (take_test.go,
+// leave_test.go): a session minted at one library must grant nothing at
+// another.
+func TestStewardSessionDoesNotCrossLibraries(t *testing.T) {
+	st := testStore(t)
+	libA := addLibrary(t, st, "fairview")
+	libB := addLibrary(t, st, "riverside")
+	keyA := armWithStewardKey(t, st, libA)
+	_ = armWithStewardKey(t, st, libB)
+
+	h := New(st, time.Now).Handler()
+	c := loginAsSteward(t, h, libA, keyA)
+
+	rec := getWithCookie(t, h, "/b/"+libB.Slug+"/steward/", c)
+	if rec.Code != http.StatusSeeOther {
+		t.Fatalf("status = %d, want a 303 to B's login form — A's cookie must not open B's hub", rec.Code)
+	}
+	want := stewardPath(libB) + "login"
+	if got := rec.Header().Get("Location"); got != want {
+		t.Errorf("Location = %q, want %q", got, want)
+	}
+}
+
+// The renewal threshold is the write-cost guard spec §3 makes explicitly: a
+// steward loading five admin pages should not cost five writes through the
+// one connection SetMaxOpenConns(1) allows, so a session is renewed only
+// once less than half its 30-day window remains. Nothing else in the suite
+// would catch the comparison written backwards, or the branch deleted
+// outright, in either direction — so both are pinned here, on an injected
+// non-UTC clock per the project's rule for anything comparing times.
+func TestStewardSessionRenewalThreshold(t *testing.T) {
+	st, lib, key := stewardServer(t)
+
+	loginAt := time.Date(2026, time.August, 1, 9, 0, 0, 0, chicago)
+	var current time.Time
+	h := New(st, func() time.Time { return current }).Handler()
+
+	current = loginAt
+	login := postForm(t, h, "/b/"+lib.Slug+"/steward/login", url.Values{"key": {key}}, nil)
+	c := cookieNamed(login, "bl_steward")
+	if c == nil {
+		t.Fatal("login did not set a bl_steward cookie")
+	}
+	originalExpiry := loginAt.Add(boulevard.StewardSessionTTL)
+
+	// One day in: 29 of 30 days remain, comfortably outside the renewal
+	// window, so the request must leave expires_at untouched.
+	current = loginAt.Add(24 * time.Hour)
+	getWithCookie(t, h, "/b/"+lib.Slug+"/steward/", c)
+	sess, err := st.StewardSessionByID(context.Background(), c.Value, current)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !sess.ExpiresAt.Equal(originalExpiry) {
+		t.Errorf("expires_at changed after a request one day in: got %v, want unchanged %v",
+			sess.ExpiresAt, originalExpiry)
+	}
+
+	// Sixteen days in: 14 of 30 days remain, inside the renewal window, so
+	// the request must push expires_at out a fresh 30 days from now.
+	current = loginAt.Add(16 * 24 * time.Hour)
+	getWithCookie(t, h, "/b/"+lib.Slug+"/steward/", c)
+	sess, err = st.StewardSessionByID(context.Background(), c.Value, current)
+	if err != nil {
+		t.Fatal(err)
+	}
+	wantRenewed := current.Add(boulevard.StewardSessionTTL)
+	if !sess.ExpiresAt.Equal(wantRenewed) {
+		t.Errorf("expires_at not renewed after a request sixteen days in: got %v, want %v",
+			sess.ExpiresAt, wantRenewed)
 	}
 }

@@ -56,9 +56,11 @@ func stewardPath(lib boulevard.Library) string { return shelfURL(lib) + "steward
 // so the login handlers can share them without going through requireSteward
 // itself — which would redirect the login form to itself.
 //
-// Not 403, and not a "set up your key" page: an unarmed install must answer
-// identically whether or not the caller guessed a real slug, the same
-// instinct DESIGN.md §4 applies to token secrets.
+// Not 403, and not a "set up your key" page: a fresh, unarmed install should
+// not advertise a steward surface at all. This 404 does not, and does not
+// need to, conceal whether the slug names a real library — /b/{slug}/
+// already renders a shelf to anyone who asks, so slug existence is public
+// regardless of what this route says.
 func (s *Server) stewardKeyed(w http.ResponseWriter, r *http.Request) (boulevard.Library, bool) {
 	lib, ok := s.libraryFromPath(w, r)
 	if !ok {
@@ -80,9 +82,9 @@ func (s *Server) stewardKeyed(w http.ResponseWriter, r *http.Request) (boulevard
 // requires a live steward session. Every steward handler starts with it.
 //
 // The order matters. "No key set" 404s before anything else is considered,
-// so an unarmed install answers identically whether or not the caller
-// guessed a real slug — the same instinct §4 applies to token secrets, where
-// unknown and revoked must be byte-identical.
+// so an unarmed install advertises no steward surface at all — see
+// stewardKeyed for why that 404 need not (and does not) also hide slug
+// existence.
 func (s *Server) requireSteward(w http.ResponseWriter, r *http.Request) (boulevard.Library, boulevard.StewardSession, bool) {
 	lib, ok := s.stewardKeyed(w, r)
 	if !ok {
@@ -97,6 +99,10 @@ func (s *Server) requireSteward(w http.ResponseWriter, r *http.Request) (bouleva
 
 	sess, live := s.stewardSession(r, lib)
 	if !live {
+		// This redirect branches on the cookie, so Vary: Cookie belongs on
+		// it as much as on any rendered page — noStore sets that alongside
+		// Cache-Control: no-store.
+		noStore(w)
 		http.Redirect(w, r, stewardPath(lib)+"login", http.StatusSeeOther)
 		return boulevard.Library{}, boulevard.StewardSession{}, false
 	}
@@ -120,14 +126,15 @@ func (s *Server) stewardSession(r *http.Request, lib boulevard.Library) (bouleva
 	if err != nil {
 		return boulevard.StewardSession{}, false
 	}
-	sess, err := s.store.StewardSessionByID(r.Context(), c.Value, s.now())
+	now := s.now()
+	sess, err := s.store.StewardSessionByID(r.Context(), c.Value, now)
 	if err != nil || sess.LibraryID != lib.ID {
 		return boulevard.StewardSession{}, false
 	}
 
-	if sess.ExpiresAt.Sub(s.now()) < boulevard.StewardSessionTTL/2 {
+	if sess.ExpiresAt.Sub(now) < boulevard.StewardSessionTTL/2 {
 		if err := s.store.RenewStewardSession(r.Context(), sess.ID,
-			s.now(), s.now().Add(boulevard.StewardSessionTTL)); err != nil {
+			now, now.Add(boulevard.StewardSessionTTL)); err != nil {
 			log.Printf("steward session not renewed: %v", err)
 		}
 	}
