@@ -249,9 +249,11 @@ Renaming a library does **not** change its slug. `/b/{slug}/` URLs are shared, b
 
 The slug is set once at creation and is immutable. Changing it is not in this milestone and would need its own thinking about redirects, which §10 already anticipates for v2's `export-host` redirect map.
 
-**This is enforced by the caller, and that is a trap worth naming.** `UpdateLibrary` already exists in `internal/store/library.go` and writes `slug` along with everything else — it takes a whole `boulevard.Library` and updates nine columns. The settings handler must therefore read the library, apply only the six settable fields to it, and write it back. A handler that builds a `Library` from form values alone would silently blank the slug, the base URL, and the steward key hash, because those fields would be zero.
+**This is enforced by the caller, and that is a trap worth naming.** `UpdateLibrary` already exists in `internal/store/library.go` and writes `slug` along with everything else — it takes a whole `boulevard.Library` and updates nine columns. The settings handler must therefore read the library, apply only the six settable fields to it, and write it back. A handler that builds a `Library` from form values alone would silently blank the slug and the base URL, because those fields would be zero.
 
 Constructing a `Library` from form input and passing it to `UpdateLibrary` is the single easiest way to break this milestone, and it would pass any test that only checks the six fields it meant to change.
+
+**The steward key hash is deliberately not a field on `boulevard.Library`.** It would otherwise be a third thing that write could blank, and the one whose loss locks the steward out of their own box. Keeping it off the struct means `UpdateLibrary` cannot reach it at all: the column is read and written only by the dedicated methods in §9, and no amount of careless struct-building can clear it. A trap that cannot be sprung beats a trap with a comment on it.
 
 `libraries` also carries `steward_contact`, which §6 does not list among the settings and which nothing currently writes. It stays out of the form and must survive the read-modify-write like every other unlisted column.
 
@@ -310,7 +312,7 @@ Beyond ordinary coverage, and each of these covers something that has already go
 - **A fourth pin is refused** and names the three already pinned.
 - **Remove sheds with reason `removed`**, and the item is re-shelvable afterwards.
 - **Lowering `slots` sheds nothing immediately**, and the next approval evicts exactly one.
-- **A rename does not change the slug**, and `/b/{slug}/` still resolves afterwards. Assert in the same test that the base URL and the steward key hash also survive the write — those are the other columns a form-built `Library` would blank, and a test that checks only the slug would miss them.
+- **A rename does not change the slug**, and `/b/{slug}/` still resolves afterwards. Assert in the same test that the base URL survives the write, and — separately, since it is not on the struct — that the steward key still authenticates after a settings save.
 - **Pin, unpin and remove refuse a non-shelved item** with `ErrNotShelved`, distinguishably from an unknown id.
 - **Non-UTC clock in every test that formats or compares a time.** The store round-trips RFC3339 in UTC; a test pinning UTC on both sides passes while the real thing is a day out. This has shipped once.
 - **Never hold an open `*sql.Rows` while issuing another query.** `SetMaxOpenConns(1)` makes that a hang rather than an error; it has already cost one debugging cycle.
