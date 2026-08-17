@@ -45,8 +45,9 @@ func TestStewardApproveMovesAPendingItemToTheShelf(t *testing.T) {
 	if rec.Code != http.StatusSeeOther {
 		t.Fatalf("status = %d, want 303", rec.Code)
 	}
-	if loc := rec.Header().Get("Location"); !strings.HasPrefix(loc, "/b/"+lib.Slug+"/steward/queue") {
-		t.Errorf("Location = %q, want it back on the queue", loc)
+	want := stewardPath(lib) + "queue?ok=shelved"
+	if loc := rec.Header().Get("Location"); loc != want {
+		t.Errorf("Location = %q, want %q", loc, want)
 	}
 
 	got, err := st.ItemByID(context.Background(), lib.ID, it.ID)
@@ -69,6 +70,10 @@ func TestStewardRejectReleasesAPendingItem(t *testing.T) {
 	rec := postForm(t, h, "/b/"+lib.Slug+"/steward/i/"+it.ID+"/reject", nil, c)
 	if rec.Code != http.StatusSeeOther {
 		t.Fatalf("status = %d, want 303", rec.Code)
+	}
+	want := stewardPath(lib) + "queue?ok=rejected"
+	if loc := rec.Header().Get("Location"); loc != want {
+		t.Errorf("Location = %q, want %q", loc, want)
 	}
 
 	got, err := st.ItemByID(context.Background(), lib.ID, it.ID)
@@ -95,8 +100,9 @@ func TestStewardRemoveShedsAShelvedItemWithReasonRemoved(t *testing.T) {
 	if rec.Code != http.StatusSeeOther {
 		t.Fatalf("status = %d, want 303", rec.Code)
 	}
-	if loc := rec.Header().Get("Location"); !strings.HasPrefix(loc, "/b/"+lib.Slug+"/steward/shelf") {
-		t.Errorf("Location = %q, want it back on the shelf page", loc)
+	want := stewardPath(lib) + "shelf?ok=removed"
+	if loc := rec.Header().Get("Location"); loc != want {
+		t.Errorf("Location = %q, want %q", loc, want)
 	}
 
 	got, err := st.ItemByID(context.Background(), lib.ID, it.ID)
@@ -126,6 +132,10 @@ func TestStewardPinThenUnpinRoundTrips(t *testing.T) {
 	if rec.Code != http.StatusSeeOther {
 		t.Fatalf("pin status = %d, want 303", rec.Code)
 	}
+	wantPin := stewardPath(lib) + "shelf?ok=pinned"
+	if loc := rec.Header().Get("Location"); loc != wantPin {
+		t.Errorf("pin Location = %q, want %q", loc, wantPin)
+	}
 	got, err := st.ItemByID(context.Background(), lib.ID, it.ID)
 	if err != nil {
 		t.Fatal(err)
@@ -137,6 +147,10 @@ func TestStewardPinThenUnpinRoundTrips(t *testing.T) {
 	rec = postForm(t, h, "/b/"+lib.Slug+"/steward/i/"+it.ID+"/unpin", nil, c)
 	if rec.Code != http.StatusSeeOther {
 		t.Fatalf("unpin status = %d, want 303", rec.Code)
+	}
+	wantUnpin := stewardPath(lib) + "shelf?ok=unpinned"
+	if loc := rec.Header().Get("Location"); loc != wantUnpin {
+		t.Errorf("unpin Location = %q, want %q", loc, wantUnpin)
 	}
 	got, err = st.ItemByID(context.Background(), lib.ID, it.ID)
 	if err != nil {
@@ -273,8 +287,9 @@ func TestStewardReshelveReturnsAShedItemToTheShelf(t *testing.T) {
 	if rec.Code != http.StatusSeeOther {
 		t.Fatalf("status = %d, want 303", rec.Code)
 	}
-	if loc := rec.Header().Get("Location"); !strings.HasPrefix(loc, "/b/"+lib.Slug+"/steward/shed") {
-		t.Errorf("Location = %q, want it back on the shed page", loc)
+	want := stewardPath(lib) + "shed?ok=reshelved"
+	if loc := rec.Header().Get("Location"); loc != want {
+		t.Errorf("Location = %q, want %q", loc, want)
 	}
 
 	got, err := st.ItemByID(context.Background(), lib.ID, it.ID)
@@ -304,6 +319,10 @@ func TestStewardReleaseEndsAShedItem(t *testing.T) {
 	if rec.Code != http.StatusSeeOther {
 		t.Fatalf("status = %d, want 303", rec.Code)
 	}
+	want := stewardPath(lib) + "shed?ok=released"
+	if loc := rec.Header().Get("Location"); loc != want {
+		t.Errorf("Location = %q, want %q", loc, want)
+	}
 
 	got, err := st.ItemByID(context.Background(), lib.ID, it.ID)
 	if err != nil {
@@ -314,39 +333,168 @@ func TestStewardReleaseEndsAShedItem(t *testing.T) {
 	}
 }
 
-// TestStewardThreePagesRenderTheirItems is a direct GET at each of the
-// three list pages with real inventory (stewardServerWithItems) in every
-// state — pending, shelved, shed. It exists mainly to exercise the display
-// formatting for LeftAt, ShelvedAt and ShedAt without panicking: all three
-// are stored-UTC timestamps converted via `$.Now.Location` in the template
-// (steward-queue/shelf/shed.html), and the pin/approve tests above only
-// exercise that path for pending and shelved items, never shed ones.
-func TestStewardThreePagesRenderTheirItems(t *testing.T) {
-	_, lib, key, h := stewardServerWithItems(t)
+// TestStewardThreePagesRenderTheirItemsInTheInjectedClocksZone is a direct
+// GET at each of the three list pages with real inventory in every state —
+// pending, shelved, shed — on a non-UTC injected clock (`chicago`,
+// render_test.go's fixed UTC-5 zone), asserting the rendered timestamp
+// itself rather than just that the page did not panic.
+//
+// Review flagged the first version of this test: every clock in this file
+// was `time.UTC`, so `.In $.Now.Location` was a no-op in every case, and
+// nothing asserted a rendered string at all — `TZ=America/Chicago go test`
+// does not catch that either, since it moves time.Local, which the
+// templates deliberately never touch (they read `$.Now.Location`, the
+// injected clock, per CLAUDE.md's rule against reading a clock in place).
+//
+// The seeded instant, 03:00 UTC, is chosen to land on the *previous*
+// calendar day once shifted five hours back into Chicago — the case that
+// fails if the conversion is ever swapped for `.Local` (still UTC-backed in
+// this process, so it would show the UTC day) or dropped outright (same
+// failure, plus the wrong clock time).
+func TestStewardThreePagesRenderTheirItemsInTheInjectedClocksZone(t *testing.T) {
+	st, lib, key := stewardServer(t)
+	now := time.Date(2026, time.August, 17, 9, 0, 0, 0, chicago)
+	h := New(st, func() time.Time { return now }).Handler()
 	c := loginAsSteward(t, h, lib, key)
+
+	prevDayUTC := time.Date(2026, time.August, 17, 3, 0, 0, 0, time.UTC)
+	const wantChicago = "16 Aug, 10:00 PM" // 03:00 UTC minus five hours
+
+	leaveItem(t, st, lib, "waiting one", prevDayUTC)
+
+	shelved := leaveItem(t, st, lib, "shelved", prevDayUTC)
+	if _, err := st.ApproveItem(context.Background(), lib.ID, shelved.ID, prevDayUTC); err != nil {
+		t.Fatal(err)
+	}
+
+	shed := leaveItem(t, st, lib, "shed", prevDayUTC)
+	if _, err := st.ApproveItem(context.Background(), lib.ID, shed.ID, prevDayUTC); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.RemoveItem(context.Background(), lib.ID, shed.ID, prevDayUTC); err != nil {
+		t.Fatal(err)
+	}
 
 	queue := getWithCookie(t, h, "/b/"+lib.Slug+"/steward/queue", c)
 	if queue.Code != http.StatusOK {
 		t.Fatalf("queue status = %d, want 200", queue.Code)
 	}
-	if !strings.Contains(queue.Body.String(), "waiting one") {
-		t.Errorf("queue page does not show its pending item:\n%s", queue.Body.String())
+	if body := queue.Body.String(); !strings.Contains(body, "waiting one") || !strings.Contains(body, wantChicago) {
+		t.Errorf("queue page does not show the pending item at %s:\n%s", wantChicago, body)
 	}
 
 	shelf := getWithCookie(t, h, "/b/"+lib.Slug+"/steward/shelf", c)
 	if shelf.Code != http.StatusOK {
 		t.Fatalf("shelf status = %d, want 200", shelf.Code)
 	}
-	if !strings.Contains(shelf.Body.String(), "shelved") {
-		t.Errorf("shelf page does not show its shelved item:\n%s", shelf.Body.String())
+	if body := shelf.Body.String(); !strings.Contains(body, "shelved") || !strings.Contains(body, wantChicago) {
+		t.Errorf("shelf page does not show the shelved item at %s:\n%s", wantChicago, body)
 	}
 
-	shed := getWithCookie(t, h, "/b/"+lib.Slug+"/steward/shed", c)
-	if shed.Code != http.StatusOK {
-		t.Fatalf("shed status = %d, want 200", shed.Code)
+	shedPage := getWithCookie(t, h, "/b/"+lib.Slug+"/steward/shed", c)
+	if shedPage.Code != http.StatusOK {
+		t.Fatalf("shed status = %d, want 200", shedPage.Code)
 	}
-	if !strings.Contains(shed.Body.String(), "you took it down") {
-		t.Errorf("shed page does not show the removed item's reason:\n%s", shed.Body.String())
+	if body := shedPage.Body.String(); !strings.Contains(body, "you took it down") || !strings.Contains(body, wantChicago) {
+		t.Errorf("shed page does not show the removed item at %s:\n%s", wantChicago, body)
+	}
+}
+
+// TestStewardUnknownOKCodeRendersNothing is the Critical fix's own required
+// test: a forged, stale, or mistyped `?ok=` code must render nothing at
+// all, not echo the code and not fall back to some other page's
+// confirmation.
+func TestStewardUnknownOKCodeRendersNothing(t *testing.T) {
+	st, lib, key := stewardServer(t)
+	h := New(st, time.Now).Handler()
+	c := loginAsSteward(t, h, lib, key)
+
+	rec := getWithCookie(t, h, "/b/"+lib.Slug+"/steward/queue?ok=totally-made-up", c)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200", rec.Code)
+	}
+	body := rec.Body.String()
+	if strings.Contains(body, "totally-made-up") {
+		t.Error("an unknown ok code was echoed onto the page")
+	}
+	for code, msg := range okMessages {
+		if strings.Contains(body, msg) {
+			t.Errorf("an unknown ok code rendered %q's confirmation (%q)", code, msg)
+		}
+	}
+}
+
+// TestStewardApproveOntoAFullEvictableShelfNamesTheEviction is the notice
+// mechanism's one genuinely dynamic case: ApproveItem's `evicted` return
+// value decides between the "shelved" and "shelved-evicted" codes. Every
+// other approve test in this file either has room to spare or has nothing
+// evictable (all-pinned), so this is the first to actually evict.
+func TestStewardApproveOntoAFullEvictableShelfNamesTheEviction(t *testing.T) {
+	st, lib, key := stewardServer(t)
+	now := time.Date(2026, time.August, 17, 12, 0, 0, 0, time.UTC)
+	h := New(st, func() time.Time { return now }).Handler()
+	c := loginAsSteward(t, h, lib, key)
+
+	oldest := leaveItem(t, st, lib, "the oldest", now)
+	if _, err := st.ApproveItem(context.Background(), lib.ID, oldest.ID, now); err != nil {
+		t.Fatal(err)
+	}
+	stored, err := st.LibraryBySlug(context.Background(), lib.Slug)
+	if err != nil {
+		t.Fatal(err)
+	}
+	stored.Slots = 1
+	if err := st.UpdateLibrary(context.Background(), stored); err != nil {
+		t.Fatal(err)
+	}
+
+	waiting := leaveItem(t, st, lib, "still waiting", now.Add(time.Hour))
+
+	rec := postForm(t, h, "/b/"+lib.Slug+"/steward/i/"+waiting.ID+"/approve", nil, c)
+	if rec.Code != http.StatusSeeOther {
+		t.Fatalf("status = %d, want 303", rec.Code)
+	}
+	wantLoc := stewardPath(lib) + "queue?ok=shelved-evicted"
+	gotLoc := rec.Header().Get("Location")
+	if gotLoc != wantLoc {
+		t.Errorf("Location = %q, want %q", gotLoc, wantLoc)
+	}
+
+	follow := getWithCookie(t, h, gotLoc, c)
+	if follow.Code != http.StatusOK {
+		t.Fatalf("following the redirect: status = %d, want 200", follow.Code)
+	}
+	if !strings.Contains(follow.Body.String(), okMessages["shelved-evicted"]) {
+		t.Errorf("queue page does not show the eviction confirmation after following the redirect:\n%s", follow.Body.String())
+	}
+
+	got, err := st.ItemByID(context.Background(), lib.ID, oldest.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.State != boulevard.ItemShed || got.ShedReason != boulevard.ShedEvicted {
+		t.Errorf("evicted item state/reason = %q/%q, want shed/evicted", got.State, got.ShedReason)
+	}
+}
+
+// TestStewardSevenMutationsOnAnUnknownIDAre404 pins the ErrNotFound branch
+// the brief singles out and all seven POST handlers implement identically.
+// TestAllTenStewardItemRoutesRequireASession never reaches a store call at
+// all (it has no session and stops at the login redirect); this is the
+// first test that actually posts, as a logged-in steward, an id naming
+// nothing.
+func TestStewardSevenMutationsOnAnUnknownIDAre404(t *testing.T) {
+	st, lib, key := stewardServer(t)
+	h := New(st, time.Now).Handler()
+	c := loginAsSteward(t, h, lib, key)
+	fakeID := "AAAAAAAAAAAAAAAAAAAAAAAAAA"
+
+	for _, action := range []string{"approve", "reject", "remove", "pin", "unpin", "reshelve", "release"} {
+		path := "/b/" + lib.Slug + "/steward/i/" + fakeID + "/" + action
+		rec := postForm(t, h, path, nil, c)
+		if rec.Code != http.StatusNotFound {
+			t.Errorf("%s on an unknown id = %d, want 404", action, rec.Code)
+		}
 	}
 }
 

@@ -16,7 +16,7 @@
           <p class="itemtext">{{.Payload}}</p>
         {{end}}
         {{if .Attribution}}<p class="dim">left by {{.Attribution}}</p>{{end}}
-        <p class="dim">shelved {{(.ShelvedAt.In $.Now.Location).Format "2 Jan, 3:04 PM"}} · {{.CopiesLeft}} of {{.CopiesTotal}} copies · {{.Takes}} taken</p>
+        <p class="dim">{{if .ShelvedAt}}shelved {{(.ShelvedAt.In $.Now.Location).Format "2 Jan, 3:04 PM"}} · {{end}}{{.CopiesLeft}} of {{.CopiesTotal}} copies · {{.Takes}} taken</p>
         {{if .Pinned}}
           <form method="post" action="{{$.StewardURL}}i/{{.ID}}/unpin">
             <button class="linkish" type="submit">Unpin</button>
@@ -27,7 +27,7 @@
           </form>
         {{end}}
         <form method="post" action="{{$.StewardURL}}i/{{.ID}}/remove">
-          <button type="submit">Remove</button>
+          <button class="linkish" type="submit">Remove</button>
         </form>
       </div>
     {{end}}

@@ -15,7 +15,7 @@
           <p class="itemtext">{{.Payload}}</p>
         {{end}}
         {{if .Attribution}}<p class="dim">left by {{.Attribution}}</p>{{end}}
-        <p class="dim">shed {{(.ShedAt.In $.Now.Location).Format "2 Jan, 3:04 PM"}}</p>
+        {{if .ShedAt}}<p class="dim">shed {{(.ShedAt.In $.Now.Location).Format "2 Jan, 3:04 PM"}}</p>{{end}}
         <form method="post" action="{{$.StewardURL}}i/{{.ID}}/reshelve">
           <button type="submit">Reshelve</button>
         </form>

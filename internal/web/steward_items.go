@@ -3,7 +3,6 @@ package web
 import (
 	"errors"
 	"net/http"
-	"net/url"
 	"strings"
 
 	"github.com/gumptionthomas/boulevard/internal/boulevard"
@@ -22,13 +21,31 @@ const maxPins = 3
 // text a steward has to scroll past standing at their box.
 const maxNoticeNoteRunes = 60
 
+// okMessages is the closed set of confirmations a successful mutation's
+// redirect may carry, keyed by the `?ok=` code the redirect target's query
+// string carries instead of free text (see withOK's doc comment for why).
+// A code outside this map — including an absent one — looks up to the zero
+// value and renders nothing; that "renders nothing" default, not an error
+// page, is what keeps a mistyped or attacker-supplied code inert rather
+// than surfacing as broken UI.
+var okMessages = map[string]string{
+	"shelved":         "Shelved.",
+	"shelved-evicted": "Shelved. The shelf was full, so the oldest item moved to the shed.",
+	"rejected":        "Released. The row stays, so nothing is lost.",
+	"removed":         "Removed. It's in the shed — reshelve it if this was a misfire.",
+	"pinned":          "Pinned.",
+	"unpinned":        "Unpinned.",
+	"reshelved":       "Reshelved.",
+	"released":        "Released. The row stays, so nothing is lost.",
+}
+
 // handleStewardQueue lists what is waiting for a decision.
 func (s *Server) handleStewardQueue(w http.ResponseWriter, r *http.Request) {
 	lib, _, ok := s.requireSteward(w, r)
 	if !ok {
 		return
 	}
-	s.renderStewardQueue(w, r, lib, http.StatusOK, r.URL.Query().Get("notice"), "")
+	s.renderStewardQueue(w, r, lib, http.StatusOK, okMessages[r.URL.Query().Get("ok")], "")
 }
 
 // handleStewardShelf lists what is on the shelf, with pin/unpin/remove.
@@ -37,7 +54,7 @@ func (s *Server) handleStewardShelf(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	s.renderStewardShelf(w, r, lib, http.StatusOK, r.URL.Query().Get("notice"), "")
+	s.renderStewardShelf(w, r, lib, http.StatusOK, okMessages[r.URL.Query().Get("ok")], "")
 }
 
 // handleStewardShed lists what has been shed, with reshelve/release.
@@ -46,7 +63,7 @@ func (s *Server) handleStewardShed(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	s.renderStewardShed(w, r, lib, http.StatusOK, r.URL.Query().Get("notice"), "")
+	s.renderStewardShed(w, r, lib, http.StatusOK, okMessages[r.URL.Query().Get("ok")], "")
 }
 
 func (s *Server) renderStewardQueue(w http.ResponseWriter, r *http.Request, lib boulevard.Library, status int, notice, errMsg string) {
@@ -156,12 +173,12 @@ func (s *Server) handleStewardApprove(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	notice := "Shelved."
+	code := "shelved"
 	if evicted != "" {
-		notice = "Shelved. The shelf was full, so the oldest item moved to the shed."
+		code = "shelved-evicted"
 	}
 	noStore(w)
-	http.Redirect(w, r, withNotice(stewardPath(lib)+"queue", notice), http.StatusSeeOther)
+	http.Redirect(w, r, withOK(stewardPath(lib)+"queue", code), http.StatusSeeOther)
 }
 
 // handleStewardReject releases a pending item. The row stays — §5's soft
@@ -187,7 +204,7 @@ func (s *Server) handleStewardReject(w http.ResponseWriter, r *http.Request) {
 	}
 
 	noStore(w)
-	http.Redirect(w, r, withNotice(stewardPath(lib)+"queue", "Released. The row stays, so nothing is lost."), http.StatusSeeOther)
+	http.Redirect(w, r, withOK(stewardPath(lib)+"queue", "rejected"), http.StatusSeeOther)
 }
 
 // handleStewardRemove sheds a shelved item, with reason "removed". It sheds
@@ -214,8 +231,7 @@ func (s *Server) handleStewardRemove(w http.ResponseWriter, r *http.Request) {
 	}
 
 	noStore(w)
-	http.Redirect(w, r, withNotice(stewardPath(lib)+"shelf",
-		"Removed. It's in the shed — reshelve it if this was a misfire."), http.StatusSeeOther)
+	http.Redirect(w, r, withOK(stewardPath(lib)+"shelf", "removed"), http.StatusSeeOther)
 }
 
 // handleStewardPin marks a shelved item as furniture: never evicted, never
@@ -252,7 +268,7 @@ func (s *Server) handleStewardPin(w http.ResponseWriter, r *http.Request) {
 	}
 
 	noStore(w)
-	http.Redirect(w, r, withNotice(stewardPath(lib)+"shelf", "Pinned."), http.StatusSeeOther)
+	http.Redirect(w, r, withOK(stewardPath(lib)+"shelf", "pinned"), http.StatusSeeOther)
 }
 
 // handleStewardUnpin returns an item to ordinary stock: evictable,
@@ -278,7 +294,7 @@ func (s *Server) handleStewardUnpin(w http.ResponseWriter, r *http.Request) {
 	}
 
 	noStore(w)
-	http.Redirect(w, r, withNotice(stewardPath(lib)+"shelf", "Unpinned."), http.StatusSeeOther)
+	http.Redirect(w, r, withOK(stewardPath(lib)+"shelf", "unpinned"), http.StatusSeeOther)
 }
 
 // handleStewardReshelve returns a shed item to the shelf. ErrShelfFull is
@@ -310,7 +326,7 @@ func (s *Server) handleStewardReshelve(w http.ResponseWriter, r *http.Request) {
 	}
 
 	noStore(w)
-	http.Redirect(w, r, withNotice(stewardPath(lib)+"shed", "Reshelved."), http.StatusSeeOther)
+	http.Redirect(w, r, withOK(stewardPath(lib)+"shed", "reshelved"), http.StatusSeeOther)
 }
 
 // handleStewardRelease soft-deletes a shed item. The row stays, so a
@@ -336,21 +352,28 @@ func (s *Server) handleStewardRelease(w http.ResponseWriter, r *http.Request) {
 	}
 
 	noStore(w)
-	http.Redirect(w, r, withNotice(stewardPath(lib)+"shed", "Released. The row stays, so nothing is lost."), http.StatusSeeOther)
+	http.Redirect(w, r, withOK(stewardPath(lib)+"shed", "released"), http.StatusSeeOther)
 }
 
-// withNotice appends a one-shot confirmation onto a redirect target, so a
-// successful mutation can still land back on a 303 (a reload must not
-// repeat the POST — the same reason handleTake redirects rather than
-// renders) while carrying something worth telling the steward, such as
+// withOK appends a confirmation *code* — never free text — onto a redirect
+// target, so a successful mutation can still land back on a 303 (a reload
+// must not repeat the POST — the same reason handleTake redirects rather
+// than renders) while carrying something worth telling the steward, such as
 // ApproveItem's silent side effect of shedding the oldest item to make
-// room. The GET handler for that page reads it back off the query string
-// for exactly one render.
-func withNotice(path, notice string) string {
-	if notice == "" {
-		return path
-	}
-	return path + "?notice=" + url.QueryEscape(notice)
+// room. It went through a query parameter carrying the *message* first —
+// review flagged that as a Critical: html/template escaping stops script,
+// not text, so arbitrary prose in the app's own voice, at its own genuine
+// URL, on the steward's own authenticated page, is a phishing primitive
+// that SameSite=Strict does not contain (the cookie still rides along on a
+// pasted URL, a link opened from SMS or Signal, or a same-origin route —
+// item.html links a stranger's submitted URL verbatim, so a leaver could
+// point one at this box's own steward URL with a crafted message attached).
+// An enumerated code closes that off structurally: okMessages is the only
+// place free text enters, the code space is small and fixed, and an
+// unrecognized code — forged, stale, or simply mistyped — renders nothing
+// rather than something merely sanitized.
+func withOK(path, code string) string {
+	return path + "?ok=" + code
 }
 
 // namePinned formats pinned items for a refusal message. A count does not
