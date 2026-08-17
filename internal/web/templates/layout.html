@@ -84,6 +84,16 @@ button[disabled] { opacity:.4; }
   .linkish { border-color:#fdfcf9; color:#fdfcf9; }
   .err { color:#e8927f; }
 }
+/* input[type=checkbox] gets its own rule: the block input/textarea/select
+   rule above stretches every field to 100% width with 13px of padding,
+   which would blow a checkbox up to the width of the page. Sized above the
+   browser default instead — settings are still read one-handed — and
+   accent-color (not a hand-rolled border/background pair) tracks both
+   colour schemes for free with a native, already-accessible control. */
+input[type="checkbox"] { width:22px; height:22px; padding:0; margin:0 0 8px; accent-color:#14130d; }
+@media (prefers-color-scheme: dark) {
+  input[type="checkbox"] { accent-color:#fdfcf9; }
+}
 .item { padding:20px 0; border-bottom:1px solid #e4dfd2; }
 .item:last-of-type { border-bottom:none; }
 .note { font:400 17px/1.45 ui-serif, Georgia, serif; margin:0 0 10px; }
