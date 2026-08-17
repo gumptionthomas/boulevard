@@ -4,15 +4,15 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Repository state
 
-Milestones 0 through 3 are built: `boulevard booklet` prints the twelve-card booklet and the browse sign, `boulevard serve` runs the shelf, `boulevard queue` / `approve` / `reject` run the approval CLI, and `boulevard shed` / `reshelve` / `release` run the shed. Scanning a card grants a 24-hour session; a session can leave an item, which waits `pending` until a steward approves it onto the shelf or rejects it, and can take an item, which is undoable until the session ends. Items shed by eviction, expiry, or being taken to zero copies wait for a steward to re-shelve or release them. Steward admin (force-activate, extend, revoke, new booklet) is not built yet — that is Milestone 4.
+Milestones 0 through 4a are built: `boulevard booklet` prints the twelve-card booklet and the browse sign, `boulevard serve` runs the shelf, `boulevard queue` / `approve` / `reject` run the approval CLI, `boulevard shed` / `reshelve` / `release` run the shed, and `boulevard steward-key` mints the steward's credential. Scanning a card grants a 24-hour session; a session can leave an item, which waits `pending` until a steward approves it onto the shelf or rejects it, and can take an item, which is undoable until the session ends. Items shed by eviction, expiry, being taken to zero copies, or a steward's removal wait for a steward to re-shelve or release them. The steward's desk — login, hub, queue, shelf, shed, settings, pins — is reachable from a phone at `/b/{slug}/steward/`; the CLIs remain for headless use. Token management (force-activate, extend, revoke, new booklet) and export are not built yet — that is Milestone 4b.
 
 ```
-cmd/boulevard/     main.go booklet.go serve.go queue.go shed.go version.go
+cmd/boulevard/     main.go booklet.go serve.go queue.go shed.go stewardkey.go version.go
 internal/booklet/  the PDF: cards, cover, QR, geometry, layout
-internal/boulevard/ domain types only, stdlib-only: Date, Library, Item, Token, Session, ids
-internal/store/    SQLite: schema.sql, migrate.go, library.go, item.go, token.go, session.go, take.go, shed.go, sweep.go
+internal/boulevard/ domain types only, stdlib-only: Date, Library, Item, Token, Session, Steward, ids
+internal/store/    SQLite: schema.sql, migrate.go, library.go, item.go, token.go, session.go, take.go, shed.go, sweep.go, steward.go
 internal/tokens/   pure: periods, secrets, Validate
-internal/web/      HTTP: server, routes, scan, shelf, leave, item, take, render, logging, templates/
+internal/web/      HTTP: server, routes, scan, shelf, leave, item, take, steward, steward_items, steward_settings, render, logging, templates/
 internal/version/  version, commit, repo URL for the AGPL footer
 ```
 
@@ -46,9 +46,10 @@ boulevard serve   [--db boulevard.db] [--addr :8080]
 boulevard queue    [--db boulevard.db] [--slug SLUG]
 boulevard approve  [--db boulevard.db] [--slug SLUG] <id>
 boulevard reject   [--db boulevard.db] [--slug SLUG] <id>
-boulevard shed     [--db boulevard.db] [--slug SLUG]
-boulevard reshelve [--db boulevard.db] [--slug SLUG] <id>
-boulevard release  [--db boulevard.db] [--slug SLUG] <id>
+boulevard shed        [--db boulevard.db] [--slug SLUG]
+boulevard reshelve    [--db boulevard.db] [--slug SLUG] <id>
+boulevard release     [--db boulevard.db] [--slug SLUG] <id>
+boulevard steward-key [--db boulevard.db] [--slug SLUG]
 boulevard version
 ```
 
@@ -56,11 +57,13 @@ boulevard version
 
 ## Build order (§13)
 
-0 booklet ✅ · 1 presence ✅ (scan → session cookie) · 2 shelf ✅ (items, leave form, approval queue) · 3 mechanics ✅ (take, undo, session sweeping, expiry, the shed, rate limits) · **4 steward admin next** (force-activate, extend, revoke, new booklet) · 5 polish · 6 (v2) host layer.
+0 booklet ✅ · 1 presence ✅ (scan → session cookie) · 2 shelf ✅ (items, leave form, approval queue) · 3 mechanics ✅ (take, undo, session sweeping, expiry, the shed, rate limits) · 4a steward's desk ✅ (generated key, the admin shell at `/b/{slug}/steward/`, queue/shelf/shed/settings pages, pins, remove-sheds) · **4b token management and export next** (force-activate, extend, revoke, new booklet) · 5 polish · 6 (v2) host layer.
+
+**Milestone 4 split in two.** `DESIGN.md` §13 names one Milestone 4; the spec that built it (`docs/superpowers/specs/2026-08-17-steward-desk-design.md`) split it into 4a (this: auth, hub, queue, shelf, shed, settings — everything about what is on the shelf) and 4b (token management and export — everything about the box and its data), because bundled they were larger than Milestone 3, which already ran to nine tasks and a whole-branch review. The two share only the admin shell.
 
 **Section numbers shifted on 15 Aug 2026.** `DESIGN.md` §11 became pop-up boulevards, pushing Later, Build order and Open to §12, §13 and §14. Specs and plans under `docs/superpowers/` predate that and cite the old numbers — in those files, "§12" means build order and "§11" means Later. They are dated records of what was decided at the time, so they were left as written rather than rewritten to match.
 
-Milestone 1 honors a `revoked` token state it never sets, and enforces no rate limits — both wait for the milestones that own them. Milestone 2 adds items to a shelf page that already existed rather than building the page and the items together, and approval is a CLI (`queue`/`approve`/`reject`), not a web admin — that is Milestone 4. Milestone 3 built copies, take, and FIFO eviction on top of what Milestone 2 already shipped in the approval transaction, added session sweeping as a correction to Milestone 1 (see Invariants below), and gave the shed the approval queue's CLI shape rather than a web admin — that is still Milestone 4.
+Milestone 1 honors a `revoked` token state it never sets, and enforces no rate limits — both wait for the milestones that own them. Milestone 2 adds items to a shelf page that already existed rather than building the page and the items together, and approval is a CLI (`queue`/`approve`/`reject`), not a web admin — that is Milestone 4a. Milestone 3 built copies, take, and FIFO eviction on top of what Milestone 2 already shipped in the approval transaction, added session sweeping as a correction to Milestone 1 (see Invariants below), and gave the shed the approval queue's CLI shape rather than a web admin — that is still Milestone 4a, and both CLIs stay even now that the web admin exists. Milestone 4a made `ApproveItem`'s all-pinned refusal reachable: the comment describing it, and the sentinel it now returns, predate this milestone by name but not by behavior — nothing set `pinned` before pins existed to set.
 
 ## Architecture
 
@@ -83,6 +86,9 @@ Each of these looks like an oversight and is not. The reasoning is in `DESIGN.md
 - **Eviction is FIFO on the oldest non-pinned item.** Deliberately dumb, deliberately not popularity-aware.
 - **Token periods are explicit stored calendar dates, never TOTP-derived.** Clock drift, DST, and a steward swapping the card late must be inspectable and fixable, not silent auth failures. Validation carries a **7-day grace** on both ends. Outside it, a valid card gets a diagnostic page rather than the generic failure page — and *which* one depends on the side: `Expired` says the card is out of date and names the day it stopped, `NotYet` says it is not in use yet and names the day it starts. Do not merge them back into one outcome; the copy is wrong for one of the two. A second reason this must stay explicit rather than derived: §11's pop-up boulevards run periods of hours or days, so nothing may assume a period is a calendar month. Widening `Date` to a timestamp is a known future migration; deriving the boundary from a clock function is not.
 - **Token secrets are stored in plaintext.** Deliberate: a lost booklet is far likelier than server compromise, and reprinting must always work. Do not hash them. It follows that a secret **is** the shelf's write credential: `boulevard.db` and the PDF are written `0600`, and nothing may log a scan URL's path, put a secret in an error message, or copy the database anywhere loose.
+- **The steward key is generated, never chosen, and only its SHA-256 hash is stored.** This is not the same decision as the plaintext token secrets just above, and the two are not in tension: a token secret must stay recoverable because reprinting a lost booklet must always work, while a steward key has no artifact to reprint — losing it just means running `boulevard steward-key` again. There is nothing worth keeping recoverable, so it is not kept. Every steward route 404s, not 403s, until a key exists — a fresh install should not advertise a surface that is not armed.
+- **Steward sessions live in `steward_sessions`, a table of their own, not `sessions`.** Milestone 3's presence sweep deletes every expired row in `sessions` unconditionally, and that sweep's whole privacy argument depends on having no exceptions. A steward session stored alongside presence sessions would either get swept out from under a logged-in steward or force the sweep to grow a carve-out — and a carve-out in a privacy mechanism is how the mechanism stops being trustworthy.
+- **`steward_key_hash` is deliberately not a field on `boulevard.Library`.** `UpdateLibrary` takes a whole `Library` and writes it back read-modify-write style (the settings form is the reason); if the hash lived on the struct, a handler that built one from form values alone would silently blank the one credential whose loss locks the steward out of their own box. Keeping it off the struct means no amount of careless struct-building can reach it — it is read and written only by the dedicated methods in `internal/store/steward.go`.
 - **Unknown and revoked secrets must be byte-identical responses.** Same status, same body — `TestScanRevokedIsIndistinguishableFromUnknown` compares them directly. Anything library-specific on that page confirms to whoever photographed a card that its secret was real. This forces the generic failure page to know nothing at all: no name, no location, no shelf link. Once a token has resolved and validated, the constraint is spent — from there, a database failure is a 500 and says so.
 - **No store method infers a current library.** Resolution boundaries (`LibraryBySlug`, `LibraryByID`, `TokenBySecret`, `SessionByID`, `DeleteSession`) are handed an identifier and return what it names, so they take no `LibraryID`. Host-scoped queries (`LibrarySlugs`) take none because the question is about the host. Everything else takes an explicit `boulevard.LibraryID`. Nothing anywhere falls back to "the only library".
 - **Clocks are injected, never read in place.** `web.New` takes a `now func() time.Time` and `tokens.Validate` takes `today` as a parameter, so grace boundaries can be tested on the exact day. Two related traps: the store round-trips timestamps through RFC3339 **in UTC**, so anything formatting one must convert into the display zone first (the banner is server-local, spec §10.2); and a test that pins UTC on both sides of a time comparison will pass while the real thing is a day out. Use a non-UTC clock in any test that formats a time.

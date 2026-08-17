@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net/http"
 	"os"
+	"strings"
 	"time"
 
 	"github.com/gumptionthomas/boulevard/internal/store"
@@ -50,6 +51,12 @@ func runServe(args []string) int {
 		fmt.Fprintf(os.Stderr, "  !  startup session sweep failed: %v\n", err)
 	}
 
+	// Two things worth a steward's attention before they walk away from the
+	// terminal, checked once per library and printed once each — never a
+	// background check, this whole binary reads clocks and prints warnings
+	// only from the composition root (cmd/boulevard).
+	warnStartup(st)
+
 	// Every request serializes through one SQLite connection
 	// (SetMaxOpenConns(1), DESIGN.md §2), so a single stalled connection
 	// stalls the whole shelf. The timeouts are what keep a phone that walked
@@ -71,4 +78,53 @@ func runServe(args []string) int {
 		return exitIO
 	}
 	return exitOK
+}
+
+// warnStartup prints the two things a steward needs to know before they
+// walk away from the terminal, once per library and once each. Neither
+// condition is fatal — both are answered by DESIGN.md §6: a fresh install
+// with no key runs the shelf fine, it just 404s every steward route until
+// `boulevard steward-key` is run, and a plain-http install runs fine too,
+// it just carries the key and its cookie in the clear. Refusing to start
+// over either was considered and rejected: every localhost test and every
+// LAN install would need an override flag, and a flag everyone passes
+// reflexively has stopped being a decision.
+//
+// A failure reading a library here is reported and skipped rather than
+// aborting the whole check — one unreadable row should not silence the
+// warning for every other library sharing the database.
+func warnStartup(st *store.Store) {
+	slugs, err := st.LibrarySlugs(context.Background())
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "  !  could not list libraries for startup checks: %v\n", err)
+		return
+	}
+	multi := len(slugs) > 1
+
+	for _, slug := range slugs {
+		lib, err := st.LibraryBySlug(context.Background(), slug)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "  !  could not load %q for startup checks: %v\n", slug, err)
+			continue
+		}
+
+		keySet, err := st.StewardKeyIsSet(context.Background(), lib.ID)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "  !  could not check the steward key for %q: %v\n", slug, err)
+		} else if !keySet {
+			if multi {
+				fmt.Printf("  No steward key set for %q. Run `boulevard steward-key --slug %s` to enable the admin.\n", slug, slug)
+			} else {
+				fmt.Printf("  No steward key set. Run `boulevard steward-key` to enable the admin.\n")
+			}
+		}
+
+		// The steward key and its cookie (DESIGN.md §6) are the one
+		// credential whose loss empties a shelf, so a plain-http install
+		// gets told once, in the place it is already looking, rather than
+		// silently carrying both in the clear.
+		if !strings.HasPrefix(lib.BaseURL, "https://") {
+			fmt.Printf("  ! The base URL is %s\n    The steward key and its cookie cross the network in the clear.\n    Anyone on this network can read them. Put TLS in front of this\n    box before it is reachable from outside your LAN.\n", lib.BaseURL)
+		}
+	}
 }

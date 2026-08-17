@@ -254,11 +254,13 @@ Leave form (type, payload, note, optional attribution) and an active take contro
 
 ### Steward
 
-Single password, set at install. Sessions long-lived.
+**The credential is generated, not chosen.** `boulevard steward-key` mints a 128-bit key, prints it once, and stores only its SHA-256 hash. Running the command again replaces the key outright — that is the reset path. A lost key has no recovery: there is no artifact to reprint, so generating another costs nothing and there is nothing to keep recoverable. This is not the same decision as the deliberately plaintext token secrets above, and the difference matters: a token secret must stay recoverable because reprinting a lost booklet must always work, while a steward key protects nothing worth reprinting. `boulevard init` will not implement key generation a second time — it calls `steward-key`, so the two cannot drift apart.
+
+Before a key exists, **every steward route 404s**, including the login form — not 403, and not a setup page. A fresh install should not advertise a surface that is not armed, the same instinct behind unknown and revoked token secrets producing identical responses. Sessions are long-lived (thirty days) but live in their own table, not the presence sessions table, because the presence sweep depends on having no exceptions to sweep around.
 
 - Approval queue
 - Shelf: remove, pin, unpin
-- Shed: re-shelve, release
+- Shed: re-shelve, release. Removing an item from the shelf sheds it rather than releasing it outright, recording `removed` as its own reason alongside `evicted`, `expired` and `taken` — a misfire is recoverable by re-shelving, and release stays the deliberate second step.
 - Tokens: current card, force-activate, extend, revoke, regenerate booklet, download PDF
 - Settings: name, location, slots, max age, default copies, approval on/off
 - Export: entire library as one file
@@ -283,7 +285,7 @@ Target: **one command to a running server with a printable booklet in under sixt
 boulevard init --name "The Fairview Boulevard" --location "4th & Fairview" --base-url https://boulevard.example.org
 ```
 
-Creates the SQLite database, generates the token booklet, prints the steward password once, writes `boulevard-booklet.pdf` to the working directory, and starts the server.
+Creates the SQLite database, generates the token booklet, prints the steward key once, writes `boulevard-booklet.pdf` to the working directory, and starts the server. It prints the key by calling `boulevard steward-key` rather than generating one itself, so the two commands cannot drift apart — there is exactly one place key generation happens.
 
 **`--base-url` is required, and verified before any PDF is written.** Every token and the permanent browse sign encode this host. A steward who prints before their domain, tunnel, or port is settled ends up with twelve dead cards and — far worse — a wrong browse sign, which is the one artifact meant to be permanent (§10). If the URL does not resolve, refuse to generate and say why. A steward who cannot yet answer "what is my URL" is not ready to print.
 
