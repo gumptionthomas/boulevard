@@ -248,7 +248,9 @@ This page gets real design attention. It is arguably the most important screen i
 
 ### With session
 
-Leave form (type, payload, note, optional attribution) and an active take control on each item. A persistent, quiet banner: *"You're at the box. You can leave or take until [time] tomorrow."*
+Leave form (type, payload, note, optional attribution) and an active take control on each item. A persistent, quiet banner: *"You're at the box. Until [time] tomorrow."*
+
+**The banner names no verbs.** It once read *"You can leave or take until…"*, which asserted a capability the controls below it could have already withdrawn — most starkly on the leave form, where it sat directly above a disabled button explaining that three leaves were already spent. A line that renders on every page in every state cannot also be an accurate summary of what is left; presence and allowance are different facts. The banner states presence and its deadline; the inert controls state the allowance, each in its own place (§5's per-session limits).
 
 ### Steward
 

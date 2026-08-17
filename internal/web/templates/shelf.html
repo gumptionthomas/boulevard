@@ -1,6 +1,14 @@
 {{define "shelf.html"}}{{template "layout" .}}{{end}}
 {{define "body"}}
-{{if .HasSession}}<div class="banner">You're at the box.<span>You can leave or take until {{.Deadline}}.</span></div>{{end}}
+{{/* The banner states what it knows — that you have presence, and for how
+     long. It deliberately does NOT name the verbs any more: it used to read
+     "You can leave or take until …", which kept asserting a capability the
+     controls below it had already withdrawn, most starkly on the leave form
+     where it sat directly above a disabled button explaining you had spent
+     your three. A line that renders on every page in every state cannot
+     also be a summary of remaining allowance; the inert controls own that.
+     DESIGN.md §6 is amended to match. */}}
+{{if .HasSession}}<div class="banner">You're at the box.<span>Until {{.Deadline}}.</span></div>{{end}}
 <main>
   <div class="site">{{.LibraryName}}</div>
   {{if .Notice}}<p class="err">{{.Notice}}</p>{{end}}

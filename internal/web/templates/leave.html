@@ -1,6 +1,10 @@
 {{define "leave.html"}}{{template "layout" .}}{{end}}
 {{define "body"}}
-{{if .HasSession}}<div class="banner">You're at the box.<span>You can leave or take until {{.Deadline}}.</span></div>{{end}}
+{{/* Same wording as shelf.html, and for the reason recorded there: this is
+     the page where the old "You can leave or take until …" contradicted
+     itself most plainly. Kept in sync by hand — the two copies are noted as
+     a follow-up rather than shared at a merge gate. */}}
+{{if .HasSession}}<div class="banner">You're at the box.<span>Until {{.Deadline}}.</span></div>{{end}}
 <main>
   <div class="site">{{.LibraryName}}</div>
   <h1>Leave something</h1>
@@ -32,5 +36,14 @@
 
     <button type="submit" {{if or (not .HasSession) .AtLeaveLimit}}disabled{{end}}>Leave it</button>
   </form>
+  {{/* The way out. item.html and left.html have always carried this; the
+       leave form did not, which only became a trap in Milestone 3: before
+       the rate limit existed the submit button was always live, so every
+       visitor left through the confirmation page, which has its own link
+       back. With the button disabled — no session, or three leaves already
+       spent — this page otherwise has no exit but the browser's back
+       gesture, on a phone, outdoors, one-handed. Found by the acceptance
+       run, not by any test. */}}
+  <a class="btn" href="{{.ShelfURL}}">Back to the shelf</a>
 </main>
 {{end}}

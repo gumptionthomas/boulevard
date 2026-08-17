@@ -65,6 +65,22 @@ func TestLeaveFormWithoutASessionIsInertNot404(t *testing.T) {
 	}
 }
 
+// TestLeaveFormAlwaysOffersAWayBack covers a dead end the acceptance run
+// found and no test did: with the submit button disabled — no session, or
+// three leaves already spent — the form had no exit but the browser's back
+// gesture. Both other secondary pages have carried this link all along.
+func TestLeaveFormAlwaysOffersAWayBack(t *testing.T) {
+	st := testStore(t)
+	addLibrary(t, st, "fairview")
+	rec := get(t, New(st, time.Now).Handler(), "/b/fairview/leave")
+	if !strings.Contains(rec.Body.String(), `href="/b/fairview/"`) {
+		t.Error("the leave form offers no way back to the shelf")
+	}
+	if !strings.Contains(rec.Body.String(), "Back to the shelf") {
+		t.Error("the way back is not labelled")
+	}
+}
+
 func TestLeaveSubmitWithoutASessionIs403(t *testing.T) {
 	st := testStore(t)
 	lib := addLibrary(t, st, "fairview")
