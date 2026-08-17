@@ -35,6 +35,8 @@ func main() {
 		os.Exit(runReshelve(os.Args[2:]))
 	case "release":
 		os.Exit(runRelease(os.Args[2:]))
+	case "steward-key":
+		os.Exit(runStewardKey(os.Args[2:]))
 	case "version":
 		os.Exit(runVersion())
 	default:
@@ -56,6 +58,7 @@ Usage:
   boulevard shed     [--db PATH] [--slug SLUG]
   boulevard reshelve [--db PATH] [--slug SLUG] <id>
   boulevard release  [--db PATH] [--slug SLUG] <id>
+  boulevard steward-key [--db PATH] [--slug SLUG]
   boulevard version
 `)
 }
