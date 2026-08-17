@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"fmt"
 	"io"
+	"time"
 )
 
 // NewStewardKey generates the steward's credential (DESIGN.md §6, §8).
@@ -55,4 +56,34 @@ func StewardKeyMatches(hash, key string) bool {
 		return false
 	}
 	return subtle.ConstantTimeCompare([]byte(hash), []byte(HashStewardKey(key))) == 1
+}
+
+// StewardSessionTTL is how long a steward stays logged in (DESIGN.md §6:
+// "sessions long-lived"). Thirty days, because the alternative is a steward
+// re-typing a 26-character key at their box in the cold.
+const StewardSessionTTL = 30 * 24 * time.Hour
+
+// StewardSession is one logged-in steward.
+//
+// It carries no token_id, unlike a presence Session: no card mints it, and
+// nothing about it is tied to the physical box. It lives in its own table
+// for that reason and for a sharper one — Milestone 3's sweep over
+// `sessions` must stay unconditional.
+type StewardSession struct {
+	ID        string
+	LibraryID LibraryID
+	CreatedAt time.Time
+	ExpiresAt time.Time
+}
+
+// NewStewardSessionID is an opaque 128-bit value, unsigned for the reason §4
+// gives for the presence session id: the row is the source of truth, so a
+// signature would add a key to store, rotate and lose while preventing no
+// forgery the lookup already rejects.
+func NewStewardSessionID(r io.Reader) (string, error) {
+	s, err := RandomBase32(r, EntropyBytes)
+	if err != nil {
+		return "", fmt.Errorf("new steward session id: %w", err)
+	}
+	return s, nil
 }

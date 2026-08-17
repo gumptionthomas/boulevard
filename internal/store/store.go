@@ -10,10 +10,12 @@
 //
 //   - Resolution boundaries are handed an identifier and return what it
 //     names, including which library that is: LibraryBySlug, LibraryByID,
-//     TokenBySecret, SessionByID, and DeleteSession. Resolving the library
-//     is their job, so they cannot be given one.
+//     TokenBySecret, SessionByID, DeleteSession, StewardSessionByID, and
+//     DeleteStewardSession. Resolving the library is their job, so they
+//     cannot be given one.
 //   - Host-scoped queries ask about the host rather than a shelf, so a
-//     library identifier would be meaningless on them: LibrarySlugs.
+//     library identifier would be meaningless on them: LibrarySlugs and
+//     SweepExpiredStewardSessions.
 //   - Everything else takes an explicit boulevard.LibraryID, and where it
 //     also takes something already carrying one — RecordScan — it rejects
 //     the pair if they disagree.
