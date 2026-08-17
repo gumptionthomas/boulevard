@@ -108,12 +108,31 @@ func (s *Store) StewardSessionByID(ctx context.Context, id string, now time.Time
 	return sess, nil
 }
 
-func (s *Store) RenewStewardSession(ctx context.Context, id string, expiresAt time.Time) error {
-	_, err := s.db.ExecContext(ctx,
-		`UPDATE steward_sessions SET expires_at = ? WHERE id = ?`,
-		expiresAt.UTC().Format(time.RFC3339), id)
+// RenewStewardSession extends a live session's expiry. The write is
+// conditional on `expires_at > now`: an unconditional UPDATE would revive a
+// session that already expired, and such rows exist between expiry and
+// whatever eventually sweeps them, exactly as with a presence Session — the
+// store should not depend on every caller remembering to load through
+// StewardSessionByID first.
+//
+// Because of that guard, zero rows affected means either "no such id" or
+// "that id names a session that has already expired" — both report
+// ErrNotFound, and a caller that treats ErrNotFound as impossible because it
+// just loaded the session would be wrong in the second case if enough time
+// passed between the load and this call.
+func (s *Store) RenewStewardSession(ctx context.Context, id string, now, expiresAt time.Time) error {
+	res, err := s.db.ExecContext(ctx,
+		`UPDATE steward_sessions SET expires_at = ? WHERE id = ? AND expires_at > ?`,
+		expiresAt.UTC().Format(time.RFC3339), id, now.UTC().Format(time.RFC3339))
 	if err != nil {
 		return fmt.Errorf("renew steward session: %w", err)
+	}
+	n, err := res.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("renew steward session: %w", err)
+	}
+	if n == 0 {
+		return fmt.Errorf("steward session: %w", ErrNotFound)
 	}
 	return nil
 }

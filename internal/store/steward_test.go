@@ -3,6 +3,7 @@ package store
 import (
 	"context"
 	"crypto/rand"
+	"errors"
 	"testing"
 	"time"
 
@@ -182,7 +183,7 @@ func TestRenewAndDeleteStewardSession(t *testing.T) {
 	}
 
 	later := now.Add(boulevard.StewardSessionTTL)
-	if err := st.RenewStewardSession(ctx, sess.ID, later); err != nil {
+	if err := st.RenewStewardSession(ctx, sess.ID, now, later); err != nil {
 		t.Fatalf("renew: %v", err)
 	}
 	if _, err := st.StewardSessionByID(ctx, sess.ID, now.Add(2*time.Hour)); err != nil {
@@ -194,5 +195,42 @@ func TestRenewAndDeleteStewardSession(t *testing.T) {
 	}
 	if _, err := st.StewardSessionByID(ctx, sess.ID, now); err == nil {
 		t.Error("a deleted session was returned")
+	}
+}
+
+// Fix round 1, finding 1 (important): an unconditional UPDATE would revive
+// a session that already expired. The sweep is traffic-driven, so such a
+// row can sit unswept for a while — the renewal itself must refuse it.
+func TestRenewDoesNotReviveAnExpiredStewardSession(t *testing.T) {
+	st, lib, now := stewardSetup(t)
+	ctx := context.Background()
+	sess := boulevard.StewardSession{
+		ID: "STEWARD1", LibraryID: lib.ID,
+		CreatedAt: now.Add(-48 * time.Hour), ExpiresAt: now.Add(-time.Hour),
+	}
+	if err := st.CreateStewardSession(ctx, sess); err != nil {
+		t.Fatalf("create: %v", err)
+	}
+
+	err := st.RenewStewardSession(ctx, sess.ID, now, now.Add(boulevard.StewardSessionTTL))
+	if !errors.Is(err, ErrNotFound) {
+		t.Fatalf("renew of an expired session: err = %v, want ErrNotFound", err)
+	}
+
+	if _, err := st.StewardSessionByID(ctx, sess.ID, now); err == nil {
+		t.Error("renewing an expired session brought it back")
+	}
+}
+
+// Fix round 1, finding 2 (minor): renewing an id that names nothing must
+// report ErrNotFound, matching SetStewardKeyHash and IncrementLeaves rather
+// than silently succeeding.
+func TestRenewUnknownStewardSessionReturnsErrNotFound(t *testing.T) {
+	st, _, now := stewardSetup(t)
+	ctx := context.Background()
+
+	err := st.RenewStewardSession(ctx, "NOSUCHID", now, now.Add(boulevard.StewardSessionTTL))
+	if !errors.Is(err, ErrNotFound) {
+		t.Errorf("renew of an unknown id: err = %v, want ErrNotFound", err)
 	}
 }
