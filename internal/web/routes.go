@@ -43,5 +43,10 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("POST /b/{slug}/i/{id}/take", s.handleTake)
 	mux.HandleFunc("POST /b/{slug}/i/{id}/untake", s.handleUntake)
 	mux.HandleFunc("GET /s/{token}", s.handleScan)
+
+	mux.HandleFunc("GET /b/{slug}/steward/{$}", s.handleStewardHub)
+	mux.HandleFunc("GET /b/{slug}/steward/login", s.handleStewardLogin)
+	mux.HandleFunc("POST /b/{slug}/steward/login", s.handleStewardLoginSubmit)
+	mux.HandleFunc("POST /b/{slug}/steward/logout", s.handleStewardLogout)
 	return logRequests(mux)
 }
