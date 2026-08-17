@@ -3,7 +3,33 @@
 <main>
   <div class="site">{{.LibraryName}}</div>
   <h1>Shed</h1>
-  <p class="dim">Shed items. Not yet built.</p>
+  {{if .Error}}<p class="err">{{.Error}}</p>{{end}}
+  {{if .Notice}}<p class="dim">{{.Notice}}</p>{{end}}
+  {{if .Items}}
+    {{range .Items}}
+      <div class="item" id="i-{{.ID}}">
+        <p class="note">{{.Note}} <span class="tag">{{.ShedReason.Label}}</span></p>
+        {{if eq .Type "link"}}
+          <p class="src"><b>{{.LinkDomain}}</b> · a link</p>
+        {{else}}
+          <p class="itemtext">{{.Payload}}</p>
+        {{end}}
+        {{if .Attribution}}<p class="dim">left by {{.Attribution}}</p>{{end}}
+        <p class="dim">shed {{(.ShedAt.In $.Now.Location).Format "2 Jan, 3:04 PM"}}</p>
+        <form method="post" action="{{$.StewardURL}}i/{{.ID}}/reshelve">
+          <button type="submit">Reshelve</button>
+        </form>
+        <form method="post" action="{{$.StewardURL}}i/{{.ID}}/release">
+          <button class="linkish" type="submit">Release</button>
+        </form>
+      </div>
+    {{end}}
+  {{else}}
+    <div class="empty">
+      <h2>The shed is empty.</h2>
+      <p class="dim">Nothing has been evicted, expired, taken to zero, or removed.</p>
+    </div>
+  {{end}}
   <a class="btn" href="{{.StewardURL}}">Back to the hub</a>
 </main>
 {{end}}

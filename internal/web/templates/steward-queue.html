@@ -3,7 +3,33 @@
 <main>
   <div class="site">{{.LibraryName}}</div>
   <h1>Waiting</h1>
-  <p class="dim">The approval queue. Not yet built.</p>
+  {{if .Error}}<p class="err">{{.Error}}</p>{{end}}
+  {{if .Notice}}<p class="dim">{{.Notice}}</p>{{end}}
+  {{if .Items}}
+    {{range .Items}}
+      <div class="item" id="i-{{.ID}}">
+        <p class="note">{{.Note}}</p>
+        {{if eq .Type "link"}}
+          <p class="src"><b>{{.LinkDomain}}</b> · a link</p>
+        {{else}}
+          <p class="itemtext">{{.Payload}}</p>
+        {{end}}
+        {{if .Attribution}}<p class="dim">left by {{.Attribution}}</p>{{end}}
+        <p class="dim">left {{(.LeftAt.In $.Now.Location).Format "2 Jan, 3:04 PM"}}</p>
+        <form method="post" action="{{$.StewardURL}}i/{{.ID}}/approve">
+          <button type="submit">Approve</button>
+        </form>
+        <form method="post" action="{{$.StewardURL}}i/{{.ID}}/reject">
+          <button class="linkish" type="submit">Reject</button>
+        </form>
+      </div>
+    {{end}}
+  {{else}}
+    <div class="empty">
+      <h2>Nothing waiting.</h2>
+      <p class="dim">New items left at the box show up here for you to look over.</p>
+    </div>
+  {{end}}
   <a class="btn" href="{{.StewardURL}}">Back to the hub</a>
 </main>
 {{end}}

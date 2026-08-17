@@ -48,5 +48,18 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /b/{slug}/steward/login", s.handleStewardLogin)
 	mux.HandleFunc("POST /b/{slug}/steward/login", s.handleStewardLoginSubmit)
 	mux.HandleFunc("POST /b/{slug}/steward/logout", s.handleStewardLogout)
+	mux.HandleFunc("GET /b/{slug}/steward/queue", s.handleStewardQueue)
+	mux.HandleFunc("GET /b/{slug}/steward/shelf", s.handleStewardShelf)
+	mux.HandleFunc("GET /b/{slug}/steward/shed", s.handleStewardShed)
+	// POST only, like every steward mutation (and take before it): a GET
+	// mutation is shareable, prefetchable by a browser or link scanner, and
+	// triggerable by anything that renders a URL.
+	mux.HandleFunc("POST /b/{slug}/steward/i/{id}/approve", s.handleStewardApprove)
+	mux.HandleFunc("POST /b/{slug}/steward/i/{id}/reject", s.handleStewardReject)
+	mux.HandleFunc("POST /b/{slug}/steward/i/{id}/remove", s.handleStewardRemove)
+	mux.HandleFunc("POST /b/{slug}/steward/i/{id}/pin", s.handleStewardPin)
+	mux.HandleFunc("POST /b/{slug}/steward/i/{id}/unpin", s.handleStewardUnpin)
+	mux.HandleFunc("POST /b/{slug}/steward/i/{id}/reshelve", s.handleStewardReshelve)
+	mux.HandleFunc("POST /b/{slug}/steward/i/{id}/release", s.handleStewardRelease)
 	return logRequests(mux)
 }

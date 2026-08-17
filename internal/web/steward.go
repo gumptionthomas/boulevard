@@ -47,6 +47,13 @@ type stewardData struct {
 	Items   []boulevard.Item
 	Library boulevard.Library
 	Errors  map[string]string
+
+	// Now is s.now(), carried onto the page so a queue/shelf/shed row can
+	// convert a stored-UTC timestamp into the display zone with
+	// `.In $.Now.Location` — never time.Local, so a test on an injected
+	// non-UTC clock renders in that clock's zone rather than the process's
+	// own (CLAUDE.md: "clocks are injected, never read in place").
+	Now time.Time
 }
 
 func stewardPath(lib boulevard.Library) string { return shelfURL(lib) + "steward/" }
