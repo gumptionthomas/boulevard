@@ -295,8 +295,14 @@ func TestHubCountsWhatNeedsTheSteward(t *testing.T) {
 	if !strings.Contains(body, "Waiting for you") {
 		t.Error("no waiting row")
 	}
-	if !strings.Contains(body, "2") {
-		t.Error("the waiting count is not shown")
+	// Final review, F10: strings.Contains(body, "2") matches the build line,
+	// "12 slots", and most timestamps — it is not an assertion about the
+	// waiting count specifically. Pinned to the row-count span the template
+	// actually renders it in (steward-hub.html), which is unambiguous here
+	// since stewardServerWithItems shelves one item and sheds one, so "2"
+	// appears in that span only for the waiting count.
+	if !strings.Contains(body, `<span class="row-count">2</span>`) {
+		t.Errorf("the waiting row-count is not shown as 2:\n%s", body)
 	}
 }
 
