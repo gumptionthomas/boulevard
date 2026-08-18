@@ -75,10 +75,18 @@ func (s *Server) stewardKeyed(w http.ResponseWriter, r *http.Request) (boulevard
 	}
 	set, err := s.store.StewardKeyIsSet(r.Context(), lib.ID)
 	if err != nil {
+		noStore(w)
 		http.Error(w, "database unavailable", http.StatusInternalServerError)
 		return boulevard.Library{}, false
 	}
 	if !set {
+		// F9: this 404 was uncached, so an intermediary could serve the
+		// unarmed-install response across a `steward-key` run that had
+		// since armed the box, making a freshly working admin surface look
+		// broken. Left as the stdlib's plain 404 rather than invalid.html
+		// on purpose: this branch's whole point is to advertise nothing
+		// about a steward surface existing at all.
+		noStore(w)
 		http.NotFound(w, r)
 		return boulevard.Library{}, false
 	}
@@ -205,6 +213,7 @@ func (s *Server) handleStewardLoginSubmit(w http.ResponseWriter, r *http.Request
 	}
 	r.Body = http.MaxBytesReader(w, r.Body, maxStewardLoginBody)
 	if err := r.ParseForm(); err != nil {
+		noStore(w)
 		http.Error(w, "could not read the form", http.StatusBadRequest)
 		return
 	}
@@ -212,6 +221,7 @@ func (s *Server) handleStewardLoginSubmit(w http.ResponseWriter, r *http.Request
 
 	verified, err := s.store.VerifyStewardKey(r.Context(), lib.ID, key)
 	if err != nil {
+		noStore(w)
 		http.Error(w, "database unavailable", http.StatusInternalServerError)
 		return
 	}
@@ -223,6 +233,7 @@ func (s *Server) handleStewardLoginSubmit(w http.ResponseWriter, r *http.Request
 
 	id, err := boulevard.NewStewardSessionID(rand.Reader)
 	if err != nil {
+		noStore(w)
 		http.Error(w, "could not mint a session", http.StatusInternalServerError)
 		return
 	}
@@ -234,6 +245,7 @@ func (s *Server) handleStewardLoginSubmit(w http.ResponseWriter, r *http.Request
 		ExpiresAt: now.Add(boulevard.StewardSessionTTL),
 	}
 	if err := s.store.CreateStewardSession(r.Context(), sess); err != nil {
+		noStore(w)
 		http.Error(w, "could not store the session", http.StatusInternalServerError)
 		return
 	}
@@ -277,16 +289,19 @@ func (s *Server) handleStewardHub(w http.ResponseWriter, r *http.Request) {
 
 	pending, err := s.store.PendingItems(r.Context(), lib.ID)
 	if err != nil {
+		noStore(w)
 		http.Error(w, "database unavailable", http.StatusInternalServerError)
 		return
 	}
 	shelved, err := s.store.ShelvedItems(r.Context(), lib.ID)
 	if err != nil {
+		noStore(w)
 		http.Error(w, "database unavailable", http.StatusInternalServerError)
 		return
 	}
 	shed, err := s.store.ShedItems(r.Context(), lib.ID)
 	if err != nil {
+		noStore(w)
 		http.Error(w, "database unavailable", http.StatusInternalServerError)
 		return
 	}

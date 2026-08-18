@@ -69,6 +69,7 @@ func (s *Server) handleStewardShed(w http.ResponseWriter, r *http.Request) {
 func (s *Server) renderStewardQueue(w http.ResponseWriter, r *http.Request, lib boulevard.Library, status int, notice, errMsg string) {
 	pending, err := s.store.PendingItems(r.Context(), lib.ID)
 	if err != nil {
+		noStore(w)
 		http.Error(w, "database unavailable", http.StatusInternalServerError)
 		return
 	}
@@ -88,6 +89,7 @@ func (s *Server) renderStewardQueue(w http.ResponseWriter, r *http.Request, lib 
 func (s *Server) renderStewardShelf(w http.ResponseWriter, r *http.Request, lib boulevard.Library, status int, notice, errMsg string) {
 	shelved, err := s.store.ShelvedItems(r.Context(), lib.ID)
 	if err != nil {
+		noStore(w)
 		http.Error(w, "database unavailable", http.StatusInternalServerError)
 		return
 	}
@@ -108,6 +110,7 @@ func (s *Server) renderStewardShelf(w http.ResponseWriter, r *http.Request, lib 
 func (s *Server) renderStewardShed(w http.ResponseWriter, r *http.Request, lib boulevard.Library, status int, notice, errMsg string) {
 	shed, err := s.store.ShedItems(r.Context(), lib.ID)
 	if err != nil {
+		noStore(w)
 		http.Error(w, "database unavailable", http.StatusInternalServerError)
 		return
 	}
@@ -135,6 +138,16 @@ const (
 	notShedMsg    = "That item isn't in the shed anymore."
 )
 
+// itemNotFoundMsg is F9's fix for the seven mutation 404s: on an unknown
+// item id, every one of handleStewardApprove and its six siblings used to
+// return the stdlib's plain-text 404 — a wall of monospace on a phone at
+// the box in bad light, next to libraryFromPath's styled invalid.html for
+// an unknown slug. Routing this through the same re-render the
+// not-pending/not-shelved/not-shed branches already use is cheap (those
+// functions exist) and gets Cache-Control: no-store for free via render(),
+// which the stdlib 404 never set either.
+const itemNotFoundMsg = "That item doesn't exist."
+
 // handleStewardApprove shelves a pending item.
 //
 // ApproveItem's ErrAllPinned is the branch this milestone makes reachable
@@ -153,7 +166,7 @@ func (s *Server) handleStewardApprove(w http.ResponseWriter, r *http.Request) {
 	evicted, err := s.store.ApproveItem(r.Context(), lib.ID, id, s.now())
 	switch {
 	case errors.Is(err, store.ErrNotFound):
-		http.NotFound(w, r)
+		s.renderStewardQueue(w, r, lib, http.StatusNotFound, "", itemNotFoundMsg)
 		return
 	case errors.Is(err, store.ErrNotPending):
 		s.renderStewardQueue(w, r, lib, http.StatusConflict, "", notPendingMsg)
@@ -161,6 +174,7 @@ func (s *Server) handleStewardApprove(w http.ResponseWriter, r *http.Request) {
 	case errors.Is(err, store.ErrAllPinned):
 		pinned, pErr := s.store.PinnedItems(r.Context(), lib.ID)
 		if pErr != nil {
+			noStore(w)
 			http.Error(w, "database unavailable", http.StatusInternalServerError)
 			return
 		}
@@ -169,6 +183,7 @@ func (s *Server) handleStewardApprove(w http.ResponseWriter, r *http.Request) {
 				". Unpin one, or raise the slot count, before approving this.")
 		return
 	case err != nil:
+		noStore(w)
 		http.Error(w, "database unavailable", http.StatusInternalServerError)
 		return
 	}
@@ -193,12 +208,13 @@ func (s *Server) handleStewardReject(w http.ResponseWriter, r *http.Request) {
 	err := s.store.RejectItem(r.Context(), lib.ID, id)
 	switch {
 	case errors.Is(err, store.ErrNotFound):
-		http.NotFound(w, r)
+		s.renderStewardQueue(w, r, lib, http.StatusNotFound, "", itemNotFoundMsg)
 		return
 	case errors.Is(err, store.ErrNotPending):
 		s.renderStewardQueue(w, r, lib, http.StatusConflict, "", notPendingMsg)
 		return
 	case err != nil:
+		noStore(w)
 		http.Error(w, "database unavailable", http.StatusInternalServerError)
 		return
 	}
@@ -220,12 +236,13 @@ func (s *Server) handleStewardRemove(w http.ResponseWriter, r *http.Request) {
 	err := s.store.RemoveItem(r.Context(), lib.ID, id, s.now())
 	switch {
 	case errors.Is(err, store.ErrNotFound):
-		http.NotFound(w, r)
+		s.renderStewardShelf(w, r, lib, http.StatusNotFound, "", itemNotFoundMsg)
 		return
 	case errors.Is(err, store.ErrNotShelved):
 		s.renderStewardShelf(w, r, lib, http.StatusConflict, "", notShelvedMsg)
 		return
 	case err != nil:
+		noStore(w)
 		http.Error(w, "database unavailable", http.StatusInternalServerError)
 		return
 	}
@@ -248,7 +265,7 @@ func (s *Server) handleStewardPin(w http.ResponseWriter, r *http.Request) {
 	err := s.store.PinItem(r.Context(), lib.ID, id, maxPins)
 	switch {
 	case errors.Is(err, store.ErrNotFound):
-		http.NotFound(w, r)
+		s.renderStewardShelf(w, r, lib, http.StatusNotFound, "", itemNotFoundMsg)
 		return
 	case errors.Is(err, store.ErrNotShelved):
 		s.renderStewardShelf(w, r, lib, http.StatusConflict, "", notShelvedMsg)
@@ -256,6 +273,7 @@ func (s *Server) handleStewardPin(w http.ResponseWriter, r *http.Request) {
 	case errors.Is(err, store.ErrPinLimit):
 		pinned, pErr := s.store.PinnedItems(r.Context(), lib.ID)
 		if pErr != nil {
+			noStore(w)
 			http.Error(w, "database unavailable", http.StatusInternalServerError)
 			return
 		}
@@ -263,6 +281,7 @@ func (s *Server) handleStewardPin(w http.ResponseWriter, r *http.Request) {
 			"Three items are already pinned: "+namePinned(pinned)+". Unpin one before pinning another.")
 		return
 	case err != nil:
+		noStore(w)
 		http.Error(w, "database unavailable", http.StatusInternalServerError)
 		return
 	}
@@ -283,12 +302,13 @@ func (s *Server) handleStewardUnpin(w http.ResponseWriter, r *http.Request) {
 	err := s.store.UnpinItem(r.Context(), lib.ID, id)
 	switch {
 	case errors.Is(err, store.ErrNotFound):
-		http.NotFound(w, r)
+		s.renderStewardShelf(w, r, lib, http.StatusNotFound, "", itemNotFoundMsg)
 		return
 	case errors.Is(err, store.ErrNotShelved):
 		s.renderStewardShelf(w, r, lib, http.StatusConflict, "", notShelvedMsg)
 		return
 	case err != nil:
+		noStore(w)
 		http.Error(w, "database unavailable", http.StatusInternalServerError)
 		return
 	}
@@ -311,7 +331,7 @@ func (s *Server) handleStewardReshelve(w http.ResponseWriter, r *http.Request) {
 	err := s.store.ReshelveItem(r.Context(), lib.ID, id, s.now())
 	switch {
 	case errors.Is(err, store.ErrNotFound):
-		http.NotFound(w, r)
+		s.renderStewardShed(w, r, lib, http.StatusNotFound, "", itemNotFoundMsg)
 		return
 	case errors.Is(err, store.ErrNotShed):
 		s.renderStewardShed(w, r, lib, http.StatusConflict, "", notShedMsg)
@@ -321,6 +341,7 @@ func (s *Server) handleStewardReshelve(w http.ResponseWriter, r *http.Request) {
 			"The shelf is full. Remove something, or raise the slot count, before reshelving this.")
 		return
 	case err != nil:
+		noStore(w)
 		http.Error(w, "database unavailable", http.StatusInternalServerError)
 		return
 	}
@@ -341,12 +362,13 @@ func (s *Server) handleStewardRelease(w http.ResponseWriter, r *http.Request) {
 	err := s.store.ReleaseItem(r.Context(), lib.ID, id)
 	switch {
 	case errors.Is(err, store.ErrNotFound):
-		http.NotFound(w, r)
+		s.renderStewardShed(w, r, lib, http.StatusNotFound, "", itemNotFoundMsg)
 		return
 	case errors.Is(err, store.ErrNotShed):
 		s.renderStewardShed(w, r, lib, http.StatusConflict, "", notShedMsg)
 		return
 	case err != nil:
+		noStore(w)
 		http.Error(w, "database unavailable", http.StatusInternalServerError)
 		return
 	}

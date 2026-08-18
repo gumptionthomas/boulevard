@@ -498,6 +498,38 @@ func TestStewardSevenMutationsOnAnUnknownIDAre404(t *testing.T) {
 	}
 }
 
+// Final review, F9: these seven 404s used to be the stdlib's plain-text
+// "404 page not found" — a wall of monospace on a phone at the box in bad
+// light — and were never marked Cache-Control: no-store, so an
+// intermediary could cache one across a `steward-key` run and make a
+// freshly armed admin surface look broken. Now they route through the same
+// styled re-render the not-pending/not-shelved/not-shed conflicts already
+// use, which sets no-store via render() automatically.
+func TestStewardMutationOnAnUnknownIDIsStyledAndUncached(t *testing.T) {
+	st, lib, key := stewardServer(t)
+	h := New(st, time.Now).Handler()
+	c := loginAsSteward(t, h, lib, key)
+	fakeID := "AAAAAAAAAAAAAAAAAAAAAAAAAA"
+
+	rec := postForm(t, h, "/b/"+lib.Slug+"/steward/i/"+fakeID+"/approve", nil, c)
+	if rec.Code != http.StatusNotFound {
+		t.Fatalf("status = %d, want 404", rec.Code)
+	}
+	if got := rec.Header().Get("Cache-Control"); got != "no-store" {
+		t.Errorf("Cache-Control = %q, want %q", got, "no-store")
+	}
+	body := rec.Body.String()
+	if strings.Contains(body, "404 page not found") {
+		t.Errorf("body is the stdlib's plain 404, not a styled steward page:\n%s", body)
+	}
+	// html/template escapes the apostrophe in itemNotFoundMsg, so this
+	// checks for the substring either side of it rather than the raw
+	// constant.
+	if !strings.Contains(body, "That item doesn") || !strings.Contains(body, "exist.") {
+		t.Errorf("body does not carry the styled not-found message:\n%s", body)
+	}
+}
+
 // TestAllTenStewardItemRoutesRequireASession pins the auth gate across every
 // route this task adds: a handler that forgot to start with requireSteward
 // would render its body (or worse, mutate) for an anonymous caller instead

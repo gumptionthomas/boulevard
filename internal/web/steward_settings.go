@@ -69,6 +69,7 @@ func (s *Server) handleStewardSettingsSubmit(w http.ResponseWriter, r *http.Requ
 	}
 	r.Body = http.MaxBytesReader(w, r.Body, maxStewardSettingsBody)
 	if err := r.ParseForm(); err != nil {
+		noStore(w)
 		http.Error(w, "could not read the form", http.StatusBadRequest)
 		return
 	}
@@ -120,6 +121,7 @@ func (s *Server) handleStewardSettingsSubmit(w http.ResponseWriter, r *http.Requ
 	// carries every field this form does not own.
 	current, err := s.store.LibraryByID(r.Context(), lib.ID)
 	if err != nil {
+		noStore(w)
 		http.Error(w, "database unavailable", http.StatusInternalServerError)
 		return
 	}
@@ -131,6 +133,7 @@ func (s *Server) handleStewardSettingsSubmit(w http.ResponseWriter, r *http.Requ
 	// simply sits there until the next approval drains it by one.
 	shelved, err := s.store.ShelvedItems(r.Context(), lib.ID)
 	if err != nil {
+		noStore(w)
 		http.Error(w, "database unavailable", http.StatusInternalServerError)
 		return
 	}
@@ -146,6 +149,7 @@ func (s *Server) handleStewardSettingsSubmit(w http.ResponseWriter, r *http.Requ
 
 	// The write.
 	if err := s.store.UpdateLibrary(r.Context(), current); err != nil {
+		noStore(w)
 		http.Error(w, "database unavailable", http.StatusInternalServerError)
 		return
 	}
