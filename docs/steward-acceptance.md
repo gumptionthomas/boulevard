@@ -23,6 +23,13 @@ all-pinned-refusal check; reaching it with the default 12 would take days.
 
 ## Check
 
+- [ ] With `boulevard serve` restarted against the database from Set up —
+      still with no key generated — the startup output warns about the
+      missing key exactly once, and (since the base URL above is `http://`)
+      about the plaintext transport exactly once. Neither warning repeats
+      on later requests. Do this check first: every check after this one
+      runs `boulevard steward-key` against this database, and once it has,
+      there is no "no key set" database left to restart against.
 - [ ] Before `boulevard steward-key` has ever been run, every steward route
       404s — the hub, the login form, and a guessed `/i/{id}/approve` —
       rather than showing a login page or a 403.
@@ -45,21 +52,19 @@ all-pinned-refusal check; reaching it with the default 12 would take days.
 - [ ] Remove a (non-pinned) shelved item. It leaves the shelf and appears
       in the shed labelled "you took it down." Re-shelve it from the shed
       and it reappears on the public shelf.
-- [ ] On the settings page, change the library's name and save. The name
-      changes on the public pages; the URL (`/b/{slug}/...`) does not
-      change; and the steward is still logged in on the page the save
-      redirects to.
+- [ ] On the settings page, change the library's name and save. The page
+      re-renders in place (it does not redirect — the name change is not
+      worth the risk a redirect-with-a-message pattern would add on an
+      authenticated admin surface, per the handler's own doc comment). The
+      name changes on the public pages, the URL (`/b/{slug}/...`) does not
+      change, and the steward is still logged in on the settings page
+      afterwards.
 - [ ] Lower `slots` below the current shelved count and save. Nothing is
       removed immediately — the shelf sits over capacity. Approve one more
       pending item and exactly one item (the oldest non-pinned) sheds to
       bring the shelf back toward the new limit.
 - [ ] Log out. The steward session ends; loading the hub afterwards
       redirects to the login form rather than showing the hub.
-- [ ] Restart `boulevard serve` against a database with no key set: the
-      startup output warns about the missing key exactly once. Restart it
-      again against a library whose base URL is `http://`: the output warns
-      about the plaintext transport exactly once. Neither warning repeats
-      on later requests.
 
 ## Run record
 

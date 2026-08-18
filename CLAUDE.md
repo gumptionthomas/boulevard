@@ -9,7 +9,7 @@ Milestones 0 through 4a are built: `boulevard booklet` prints the twelve-card bo
 ```
 cmd/boulevard/     main.go booklet.go serve.go queue.go shed.go stewardkey.go version.go
 internal/booklet/  the PDF: cards, cover, QR, geometry, layout
-internal/boulevard/ domain types only, stdlib-only: Date, Library, Item, Token, Session, Steward, ids
+internal/boulevard/ domain types only, stdlib-only: Date, Library, Item, Token, Session, StewardSession, ids
 internal/store/    SQLite: schema.sql, migrate.go, library.go, item.go, token.go, session.go, take.go, shed.go, sweep.go, steward.go
 internal/tokens/   pure: periods, secrets, Validate
 internal/web/      HTTP: server, routes, scan, shelf, leave, item, take, steward, steward_items, steward_settings, render, logging, templates/

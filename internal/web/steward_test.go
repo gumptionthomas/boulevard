@@ -313,6 +313,61 @@ func TestHubSaysNothingNeedsYouWhenNothingDoes(t *testing.T) {
 	}
 }
 
+// The Critical this round's review found: the empty state must gate on
+// WORK, not on an empty shelf. §6's own example puts three items on the
+// shelf and still calls it "Nothing needs you" — a box with items shelved,
+// nothing pending, and nothing shed is the healthy common case, and it is
+// exactly the state the spec singles out as the one a steward sees most.
+// The prior gate required .Shelved == 0 too, which meant the screen could
+// only ever render on a box nobody had used.
+func TestHubSaysNothingNeedsYouWithAFullShelfAndNoWork(t *testing.T) {
+	ctx := context.Background()
+	st, lib, key := stewardServer(t)
+	now := time.Date(2026, time.August, 15, 12, 0, 0, 0, time.UTC)
+
+	for _, note := range []string{"one", "two", "three"} {
+		id, err := boulevard.RandomBase32(rand.Reader, boulevard.EntropyBytes)
+		if err != nil {
+			t.Fatal(err)
+		}
+		it := boulevard.Item{
+			ID: id, LibraryID: lib.ID, Type: boulevard.ItemText, Payload: "x",
+			Note: note, State: boulevard.ItemPending, LeftAt: now,
+		}
+		if err := st.CreateItem(ctx, lib.ID, it); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := st.ApproveItem(ctx, lib.ID, it.ID, now); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	h := New(st, func() time.Time { return now }).Handler()
+	c := loginAsSteward(t, h, lib, key)
+
+	rec := getWithCookie(t, h, "/b/"+lib.Slug+"/steward/", c)
+	body := rec.Body.String()
+	if !strings.Contains(body, "Nothing needs you") {
+		t.Errorf("a shelved-but-idle box does not say so:\n%s", body)
+	}
+	if !strings.Contains(body, "3 things on the shelf") {
+		t.Errorf("empty state does not name the shelved count:\n%s", body)
+	}
+}
+
+// The gate must not be loosened to always-on: something waiting still
+// suppresses the empty state, even with nothing shed.
+func TestHubDoesNotSayNothingNeedsYouWhenSomethingIsWaiting(t *testing.T) {
+	// two waiting, one shelved, one shed
+	_, lib, key, h := stewardServerWithItems(t)
+	c := loginAsSteward(t, h, lib, key)
+
+	rec := getWithCookie(t, h, "/b/"+lib.Slug+"/steward/", c)
+	if strings.Contains(rec.Body.String(), "Nothing needs you") {
+		t.Error("the empty state renders even though something is waiting")
+	}
+}
+
 // Beyond the brief's two given tests: the shelf row and shed row both carry
 // numbers no other assertion here pins down, so a handler that swapped
 // Shelved/Slots or dropped the reason tally would still pass the two tests
