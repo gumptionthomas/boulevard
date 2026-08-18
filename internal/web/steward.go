@@ -104,7 +104,7 @@ func (s *Server) requireSteward(w http.ResponseWriter, r *http.Request) (bouleva
 		log.Printf("steward sessions not swept: %v", err)
 	}
 
-	sess, live := s.stewardSession(r, lib)
+	sess, live := s.stewardSession(w, r, lib)
 	if !live {
 		// This redirect branches on the cookie, so Vary: Cookie belongs on
 		// it as much as on any rendered page — noStore sets that alongside
@@ -128,7 +128,21 @@ func (s *Server) requireSteward(w http.ResponseWriter, r *http.Request) (bouleva
 // or "already expired". Logging and continuing is correct for both, because
 // the session was already loaded and checked: a renewal failure here is
 // housekeeping, not an auth decision.
-func (s *Server) stewardSession(r *http.Request, lib boulevard.Library) (boulevard.StewardSession, bool) {
+//
+// Final review, F4: renewal used to touch only the database row. The
+// browser's own copy of expires_at is the cookie's MaxAge, set once at
+// login to thirty days and never refreshed — so without re-issuing the
+// cookie here, the browser dropped bl_steward exactly thirty days after
+// login regardless of activity, while the row kept extending underneath
+// it. Spec §3's stated purpose for renewal, "an active steward is not
+// logged out mid-month," did not hold: an active steward was logged out on
+// day thirty. `w` is threaded in so a successful renewal can call
+// http.SetCookie alongside the database write. The cookie is only
+// re-issued when the write actually succeeds — on a renewal failure the
+// already-loaded `sess` (with its original, still-valid expiry) is
+// returned unchanged, so the cookie the browser holds never claims an
+// expiry the stored row does not also have.
+func (s *Server) stewardSession(w http.ResponseWriter, r *http.Request, lib boulevard.Library) (boulevard.StewardSession, bool) {
 	c, err := r.Cookie(stewardCookieName)
 	if err != nil {
 		return boulevard.StewardSession{}, false
@@ -140,9 +154,12 @@ func (s *Server) stewardSession(r *http.Request, lib boulevard.Library) (bouleva
 	}
 
 	if sess.ExpiresAt.Sub(now) < boulevard.StewardSessionTTL/2 {
-		if err := s.store.RenewStewardSession(r.Context(), sess.ID,
-			now, now.Add(boulevard.StewardSessionTTL)); err != nil {
+		expiresAt := now.Add(boulevard.StewardSessionTTL)
+		if err := s.store.RenewStewardSession(r.Context(), sess.ID, now, expiresAt); err != nil {
 			log.Printf("steward session not renewed: %v", err)
+		} else {
+			sess.ExpiresAt = expiresAt
+			http.SetCookie(w, stewardCookie(lib, sess.ID, boulevard.StewardSessionTTL))
 		}
 	}
 	return sess, true

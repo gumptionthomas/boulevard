@@ -484,9 +484,12 @@ func TestStewardSessionRenewalThreshold(t *testing.T) {
 	originalExpiry := loginAt.Add(boulevard.StewardSessionTTL)
 
 	// One day in: 29 of 30 days remain, comfortably outside the renewal
-	// window, so the request must leave expires_at untouched.
+	// window, so the request must leave expires_at untouched and must not
+	// re-issue the cookie either — a Set-Cookie here would push the
+	// browser's copy out to day thirty-one while the row it is meant to
+	// track stayed put.
 	current = loginAt.Add(24 * time.Hour)
-	getWithCookie(t, h, "/b/"+lib.Slug+"/steward/", c)
+	rec := getWithCookie(t, h, "/b/"+lib.Slug+"/steward/", c)
 	sess, err := st.StewardSessionByID(context.Background(), c.Value, current)
 	if err != nil {
 		t.Fatal(err)
@@ -495,11 +498,22 @@ func TestStewardSessionRenewalThreshold(t *testing.T) {
 		t.Errorf("expires_at changed after a request one day in: got %v, want unchanged %v",
 			sess.ExpiresAt, originalExpiry)
 	}
+	if got := cookieNamed(rec, "bl_steward"); got != nil {
+		t.Errorf("a Set-Cookie was issued one day in, outside the renewal window: %v", got)
+	}
 
 	// Sixteen days in: 14 of 30 days remain, inside the renewal window, so
-	// the request must push expires_at out a fresh 30 days from now.
+	// the request must push expires_at out a fresh 30 days from now — and,
+	// final review F4, must re-issue the bl_steward cookie with that same
+	// new expiry. Without this, the row alone renewing is invisible to the
+	// browser: httptest has no cookie jar, so a test that only read the
+	// store row back (as this one did before the fix) would pass whether or
+	// not the handler ever re-issued the cookie at all — the row renewing
+	// says nothing about what ships to the browser. Asserting Set-Cookie
+	// here is what actually pins spec §3's promise that an active steward
+	// is not logged out mid-month.
 	current = loginAt.Add(16 * 24 * time.Hour)
-	getWithCookie(t, h, "/b/"+lib.Slug+"/steward/", c)
+	rec = getWithCookie(t, h, "/b/"+lib.Slug+"/steward/", c)
 	sess, err = st.StewardSessionByID(context.Background(), c.Value, current)
 	if err != nil {
 		t.Fatal(err)
@@ -508,5 +522,16 @@ func TestStewardSessionRenewalThreshold(t *testing.T) {
 	if !sess.ExpiresAt.Equal(wantRenewed) {
 		t.Errorf("expires_at not renewed after a request sixteen days in: got %v, want %v",
 			sess.ExpiresAt, wantRenewed)
+	}
+	renewedCookie := cookieNamed(rec, "bl_steward")
+	if renewedCookie == nil {
+		t.Fatal("no Set-Cookie issued sixteen days in, inside the renewal window — the browser's copy still expires on the original thirty-day schedule")
+	}
+	if renewedCookie.Value != c.Value {
+		t.Errorf("renewed cookie value = %q, want the same session id %q", renewedCookie.Value, c.Value)
+	}
+	if renewedCookie.MaxAge != int(boulevard.StewardSessionTTL.Seconds()) {
+		t.Errorf("renewed cookie MaxAge = %d, want %d (a fresh thirty days)",
+			renewedCookie.MaxAge, int(boulevard.StewardSessionTTL.Seconds()))
 	}
 }
