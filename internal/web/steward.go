@@ -104,6 +104,19 @@ func (s *Server) requireSteward(w http.ResponseWriter, r *http.Request) (bouleva
 		log.Printf("steward sessions not swept: %v", err)
 	}
 
+	// Final review, F5: SweepExpiredItems ran on the public shelf and item
+	// handlers but nowhere a steward looked, so a steward page could show a
+	// shelved item that had aged past max_age_days on a box nobody had
+	// loaded the public shelf on recently. renderStewardShelf's job is to be
+	// the authoritative view — on a quiet box (DESIGN.md's typical case)
+	// with live Pin and Remove controls sitting on items that had actually
+	// already expired, and a press of Remove there filed the item as
+	// `removed` rather than `expired`, destroying the distinction §6 added
+	// the fourth reason to preserve.
+	if _, err := s.store.SweepExpiredItems(r.Context(), lib.ID, s.now()); err != nil {
+		log.Printf("items not swept: %v", err)
+	}
+
 	sess, live := s.stewardSession(w, r, lib)
 	if !live {
 		// This redirect branches on the cookie, so Vary: Cookie belongs on
