@@ -150,9 +150,23 @@ func (s *Store) IncrementViews(ctx context.Context, id boulevard.LibraryID, item
 // `reshelve`, which widens the window in which one of them commits between
 // this transaction's read and its write and costs it the snapshot. Fixing
 // that is `_txlock=immediate` on the DSN, which forces every transaction to
-// take its write lock up front instead of deferring — out of scope for this
-// fix wave, since it changes the locking mode of every transaction in the
-// binary.
+// take its write lock up front instead of deferring.
+//
+// Final review, steward-desk fix wave: still deferred, but not because it
+// is out of scope — because it is not actually reachable through this
+// milestone's own surface. SQLITE_BUSY_SNAPSHOT needs two open
+// connections racing each other, and SetMaxOpenConns(1) means `serve`
+// itself only ever holds one; the failure needs a second *process* against
+// the same file — a steward running `approve` over SSH while the web
+// admin this milestone ships is also live. That path now competes with a
+// steward's *normal* route through the web admin rather than being the
+// only route, which arguably narrows the window this milestone opens
+// rather than widening it. Milestone 4b must schedule `_txlock=immediate`
+// explicitly rather than inherit this deferral silently: export is another
+// long-running second-process reader, and whoever adds it must first
+// verify `modernc.org/sqlite` actually honours `_txlock` at all — the DSN
+// uses `_pragma=` syntax throughout, and a `_txlock` key the driver
+// silently ignores would look fixed without being fixed.
 func (s *Store) ApproveItem(ctx context.Context, id boulevard.LibraryID, itemID string, now time.Time) (string, error) {
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
