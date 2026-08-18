@@ -234,3 +234,61 @@ func TestRenewUnknownStewardSessionReturnsErrNotFound(t *testing.T) {
 		t.Errorf("renew of an unknown id: err = %v, want ErrNotFound", err)
 	}
 }
+
+// Final review, F1 (critical): regenerating the steward key must revoke
+// every live session on that library. Until this fix, SetStewardKeyHash did
+// one write — UPDATE libraries SET steward_key_hash — and left
+// steward_sessions untouched, so the reset path the spec, DESIGN.md and the
+// command's own doc comment all promise did not exist: a captured
+// bl_steward cookie, a key read aloud, one typed on a borrowed phone, all
+// survived the only remedy the software offered, for up to thirty more
+// days.
+func TestSetStewardKeyHashRevokesSessionsOnThatLibrary(t *testing.T) {
+	st, lib, now := stewardSetup(t)
+	ctx := context.Background()
+
+	sess := boulevard.StewardSession{
+		ID: "STEWARD1", LibraryID: lib.ID,
+		CreatedAt: now, ExpiresAt: now.Add(boulevard.StewardSessionTTL),
+	}
+	if err := st.CreateStewardSession(ctx, sess); err != nil {
+		t.Fatalf("create session: %v", err)
+	}
+
+	if err := st.SetStewardKeyHash(ctx, lib.ID, "somehash"); err != nil {
+		t.Fatalf("set steward key hash: %v", err)
+	}
+
+	if _, err := st.StewardSessionByID(ctx, sess.ID, now); !errors.Is(err, ErrNotFound) {
+		t.Errorf("session survived a key reset: err = %v, want ErrNotFound", err)
+	}
+}
+
+// The delete inside SetStewardKeyHash is library-scoped: resetting library
+// A's key must not sign out a steward legitimately logged into library B.
+func TestSetStewardKeyHashDoesNotTouchAnotherLibrarysSessions(t *testing.T) {
+	st, libA, now := stewardSetup(t)
+	ctx := context.Background()
+
+	libB := makeLibrary(t)
+	libB.Slug = "other"
+	if err := st.CreateLibrary(ctx, libB); err != nil {
+		t.Fatalf("create second library: %v", err)
+	}
+
+	sessB := boulevard.StewardSession{
+		ID: "STEWARDB", LibraryID: libB.ID,
+		CreatedAt: now, ExpiresAt: now.Add(boulevard.StewardSessionTTL),
+	}
+	if err := st.CreateStewardSession(ctx, sessB); err != nil {
+		t.Fatalf("create session for library B: %v", err)
+	}
+
+	if err := st.SetStewardKeyHash(ctx, libA.ID, "somehash"); err != nil {
+		t.Fatalf("set steward key hash for library A: %v", err)
+	}
+
+	if _, err := st.StewardSessionByID(ctx, sessB.ID, now); err != nil {
+		t.Errorf("resetting library A's key revoked library B's session: %v", err)
+	}
+}

@@ -11,10 +11,30 @@ import (
 )
 
 // SetStewardKeyHash stores the hash of a freshly generated key, replacing
-// any previous one. Replacing is the whole reset story: a lost key is not
-// recoverable, and generating another costs nothing.
+// any previous one, and revokes every live steward session on that library
+// in the same transaction.
+//
+// Replacing the key is the whole reset story (DESIGN.md §6): a lost key, a
+// key read aloud, one typed on a borrowed phone, a notebook photographed —
+// and, the case this branch's own startup warning names, a `bl_steward`
+// cookie captured off a plain-http connection. None of those are actually
+// remedied if a session minted under the old key keeps working after the
+// reset: the attacker's credential was never the key itself. Deleting the
+// sessions here, inside SetStewardKeyHash, rather than leaving it to
+// runStewardKey to remember, means no future caller of this method can
+// forget it — the same reasoning that keeps steward_key_hash off the
+// Library struct so UpdateLibrary cannot blank it by accident.
+//
+// The delete is library-scoped: a session belonging to a different library
+// must survive a reset that was never about it.
 func (s *Store) SetStewardKeyHash(ctx context.Context, id boulevard.LibraryID, hash string) error {
-	res, err := s.db.ExecContext(ctx,
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("set steward key for %q: %w", id, err)
+	}
+	defer tx.Rollback()
+
+	res, err := tx.ExecContext(ctx,
 		`UPDATE libraries SET steward_key_hash = ? WHERE id = ?`, hash, string(id))
 	if err != nil {
 		return fmt.Errorf("set steward key for %q: %w", id, err)
@@ -25,6 +45,15 @@ func (s *Store) SetStewardKeyHash(ctx context.Context, id boulevard.LibraryID, h
 	}
 	if n == 0 {
 		return fmt.Errorf("library %q: %w", id, ErrNotFound)
+	}
+
+	if _, err := tx.ExecContext(ctx,
+		`DELETE FROM steward_sessions WHERE library_id = ?`, string(id)); err != nil {
+		return fmt.Errorf("revoke steward sessions for %q: %w", id, err)
+	}
+
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("set steward key for %q: %w", id, err)
 	}
 	return nil
 }

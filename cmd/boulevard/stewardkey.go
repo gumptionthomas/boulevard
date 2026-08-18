@@ -16,9 +16,12 @@ import (
 // install has its own promise to meet, and Milestone 5's `init` will call
 // this same generate-hash-store sequence rather than have it built twice.
 //
-// Running it again replaces the key outright — that is the whole reset
-// story. A lost key is not recoverable, and generating another costs
-// nothing, so there is no "are you sure" and no prior key to fall back on.
+// Running it again replaces the key outright and signs out every steward
+// session on this library — that is the whole reset story. A lost key is
+// not recoverable, and generating another costs nothing, so there is no
+// "are you sure" and no prior key to fall back on. The session revocation
+// happens inside store.SetStewardKeyHash itself, in the same transaction as
+// the key replacement, so this command does not have to remember to do it.
 //
 // The key is printed to stdout exactly once. Nothing else prints it, writes
 // it to a file, or logs it — only its hash, via HashStewardKey, ever
@@ -50,6 +53,7 @@ func runStewardKey(args []string) int {
 
 	fmt.Printf("\n  Your steward key, shown once:\n\n")
 	fmt.Printf("    %s\n\n", key)
-	fmt.Printf("  Write it down. It is not recoverable — run this\n  command again to replace it.\n\n")
+	fmt.Printf("  Write it down. It is not recoverable — run this\n  command again to replace it.\n")
+	fmt.Printf("  Anyone previously logged in as steward has been signed out.\n\n")
 	return exitOK
 }
