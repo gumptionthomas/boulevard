@@ -43,6 +43,26 @@ func september(t *testing.T, st *store.Store, lib boulevard.Library, state boule
 		boulevard.NewDate(2026, time.September, 30), state)
 }
 
+// addLibraryWithBaseURL is addLibrary with an explicit BaseURL, for the F12
+// cookie-derivation test above — addLibrary itself always uses
+// https://example.org, and this needs an http:// library too.
+func addLibraryWithBaseURL(t *testing.T, st *store.Store, slug, baseURL string) boulevard.Library {
+	t.Helper()
+	id, err := boulevard.NewLibraryID(rand.Reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	lib := boulevard.Library{
+		ID: id, Slug: slug, Name: "The Fairview Boulevard",
+		LocationLabel: "4th & Fairview, Minneapolis",
+		BaseURL:       baseURL,
+	}
+	if err := st.CreateLibrary(context.Background(), lib); err != nil {
+		t.Fatal(err)
+	}
+	return lib
+}
+
 func scanAt(t *testing.T, st *store.Store, secret string, now time.Time) *httptest.ResponseRecorder {
 	t.Helper()
 	rec := httptest.NewRecorder()
@@ -86,8 +106,13 @@ func TestScanGrantedRedirectsAndSetsCookie(t *testing.T) {
 	if c.MaxAge != 86400 {
 		t.Errorf("MaxAge = %d, want 86400", c.MaxAge)
 	}
-	if c.Secure {
-		t.Error("Secure must not be set on a plain-HTTP request")
+	// addLibrary's BaseURL is https://example.org, and Secure is derived
+	// from that (F12) rather than from r.TLS on this request, which
+	// httptest.NewRequest leaves nil — mirroring the real deployment
+	// DESIGN.md §8 recommends, where serve terminates no TLS itself and an
+	// https:// install always sits behind a reverse proxy that does.
+	if !c.Secure {
+		t.Error("Secure must be set for an https:// library, even though this request itself has no TLS")
 	}
 }
 
@@ -116,21 +141,45 @@ func TestScanGrantedPersistsASessionNamingItsToken(t *testing.T) {
 	}
 }
 
-func TestScanSetsSecureCookieOverTLS(t *testing.T) {
+// Final review, F12: Secure used to be r.TLS != nil, which is never true in
+// the deployment DESIGN.md §8 recommends — serve terminates no TLS itself,
+// so an https:// install always sits behind a reverse proxy, and r.TLS on
+// the request this process actually receives is always nil regardless. This
+// pins the fix in both directions, each with r.TLS set to the opposite of
+// what the old, buggy derivation would have wanted, so it fails immediately
+// if Secure is ever wired back to r.TLS: an https:// library must get
+// Secure with r.TLS nil, and an http:// library must not get Secure even
+// with r.TLS set.
+func TestScanCookieSecureFollowsLibraryBaseURLNotRequestTLS(t *testing.T) {
 	st := testStore(t)
-	lib := addLibrary(t, st, "fairview")
-	tok := september(t, st, lib, boulevard.TokenPending)
 	now := time.Date(2026, time.September, 15, 16, 12, 0, 0, time.UTC)
 
-	req := httptest.NewRequest(http.MethodGet, "/s/"+tok.Secret, nil)
-	req.TLS = &tls.ConnectionState{}
+	httpsLib := addLibrary(t, st, "fairview") // BaseURL: https://example.org
+	httpsTok := september(t, st, httpsLib, boulevard.TokenPending)
+	req := httptest.NewRequest(http.MethodGet, "/s/"+httpsTok.Secret, nil)
+	// r.TLS left nil on purpose.
 	rec := httptest.NewRecorder()
 	New(st, func() time.Time { return now }).Handler().ServeHTTP(rec, req)
+	c := cookieNamed(rec, cookieName)
+	if c == nil {
+		t.Fatal("no cookie set for the https:// library")
+	}
+	if !c.Secure {
+		t.Error("Secure must be set for an https:// library, even when r.TLS is nil")
+	}
 
-	for _, c := range rec.Result().Cookies() {
-		if c.Name == cookieName && !c.Secure {
-			t.Error("Secure must be set when the request arrived over TLS")
-		}
+	httpLib := addLibraryWithBaseURL(t, st, "riverside", "http://example.org")
+	httpTok := september(t, st, httpLib, boulevard.TokenPending)
+	req2 := httptest.NewRequest(http.MethodGet, "/s/"+httpTok.Secret, nil)
+	req2.TLS = &tls.ConnectionState{} // set on purpose.
+	rec2 := httptest.NewRecorder()
+	New(st, func() time.Time { return now }).Handler().ServeHTTP(rec2, req2)
+	c2 := cookieNamed(rec2, cookieName)
+	if c2 == nil {
+		t.Fatal("no cookie set for the http:// library")
+	}
+	if c2.Secure {
+		t.Error("Secure must not be set for an http:// library, even when r.TLS is non-nil")
 	}
 }
 
