@@ -11,18 +11,32 @@ Libraries stand.
 
 ## Status
 
-Milestone 2 — the shelf. The booklet generator, the first HTTP server, and
-now items.
+Milestone 4a — the steward's desk. The booklet generator, the HTTP server,
+items, taking, and now a web admin for the steward.
 
-    boulevard booklet --name "..." --location "..." --base-url https://...
-    boulevard serve  --addr :8080
-    boulevard queue                    # what is waiting for approval
-    boulevard approve <id>             # put it on the shelf
-    boulevard reject  <id>             # release it
+    boulevard booklet    --name "..." --location "..." --base-url https://...
+    boulevard steward-key                  # mint the steward's admin credential
+    boulevard serve       --addr :8080
+    boulevard queue                        # what is waiting for approval
+    boulevard approve <id>                 # put it on the shelf
+    boulevard reject  <id>                 # release it
 
-Someone at the box scans a card, leaves a link or a note, and it waits. The
-steward approves it from a terminal, and it appears for anyone to read.
-Taking is Milestone 3; the steward's web admin is Milestone 4.
+Someone at the box scans a card, leaves a link or a note, and it waits for
+a steward to approve it onto the shelf or reject it; anyone with a live
+session can take a shelved item, undoable until the session ends.
+
+`boulevard steward-key` mints the steward's own credential — a 128-bit key,
+printed once, stored only as a hash — and is a required setup step before
+any admin route works: every steward route 404s until a key exists.
+Running the command again replaces the key and signs out every steward
+session on that library, which is the reset path for a lost, overheard, or
+captured key.
+
+Once a key exists, the steward's desk (login, hub, approval queue, shelf,
+shed, settings, pins) is reachable from a phone at `/b/{slug}/steward/`;
+`queue`/`approve`/`reject` and their shed-side siblings remain as CLIs for
+headless use. Token management (force-activate, extend, revoke, a new
+booklet) and export are not built yet — that is Milestone 4b.
 
 `booklet` writes `boulevard.db` and a printable `boulevard-booklet.pdf`.
 `serve` puts the shelf on the web: scanning a card grants a 24-hour session,
@@ -63,6 +77,8 @@ To stamp version metadata:
 - `docs/booklet-acceptance.md` — Milestone 0 manual print-and-scan checklist
 - `docs/presence-acceptance.md` — Milestone 1 manual acceptance checklist
 - `docs/shelf-acceptance.md` — Milestone 2 manual acceptance checklist
+- `docs/mechanics-acceptance.md` — Milestone 3 manual acceptance checklist
+- `docs/steward-acceptance.md` — Milestone 4a manual acceptance checklist
 - `docs/superpowers/specs/` — per-milestone design documents
 
 ## License
