@@ -121,7 +121,12 @@ a.row {
   display:flex; justify-content:space-between; align-items:center; gap:16px;
   padding:20px 0; border-bottom:1px solid #e4dfd2; text-decoration:none; color:inherit;
 }
-a.row:last-of-type { border-bottom:none; }
+/* :last-of-type filters by tag, and the element after the last a.row is
+   a.btn ("Back to the shelf"), not another a.row — so a.row:last-of-type
+   never matched and every row, including the one right before the button,
+   kept its border-bottom. .last marks the actual last row explicitly
+   (steward-hub.html's Settings row) instead of depending on DOM position. */
+a.row.last { border-bottom:none; }
 .row-label { font-size:16px; font-weight:600; }
 .row-detail { display:block; font-size:13px; font-weight:400; color:#6b6659; margin-top:3px; }
 .row-count { font:700 22px/1 ui-serif, Georgia, serif; flex-shrink:0; }

@@ -313,6 +313,48 @@ func TestHubSaysNothingNeedsYouWhenNothingDoes(t *testing.T) {
 	}
 }
 
+// Final review, F3: the empty-state branch used to replace the four
+// navigation rows rather than sit above them, which meant the state a
+// steward sees most offered no route to Settings — the surface this
+// milestone exists partly to retire SQL-client editing for — or to the
+// shelf, where pinning happens precisely when nothing is waiting.
+func TestHubEmptyStateStillOffersSettingsAndTheShelf(t *testing.T) {
+	st, lib, key := stewardServer(t)
+	h := New(st, time.Now).Handler()
+	c := loginAsSteward(t, h, lib, key)
+
+	rec := getWithCookie(t, h, "/b/"+lib.Slug+"/steward/", c)
+	body := rec.Body.String()
+	if !strings.Contains(body, "Nothing needs you") {
+		t.Fatalf("expected the empty state on an idle box:\n%s", body)
+	}
+	if !strings.Contains(body, `href="`+stewardPath(lib)+`settings"`) {
+		t.Errorf("empty state does not link to settings:\n%s", body)
+	}
+	if !strings.Contains(body, `href="`+stewardPath(lib)+`shelf"`) {
+		t.Errorf("empty state does not link to the shelf:\n%s", body)
+	}
+}
+
+// F2: the logout route is wired and tested (TestStewardLogoutEndsTheSession
+// below), but before this fix no template pointed at it — a steward logged
+// in on a borrowed phone, on a thirty-day SameSite=Strict cookie, had no way
+// to end the session from the UI.
+func TestHubRendersALogoutForm(t *testing.T) {
+	st, lib, key := stewardServer(t)
+	h := New(st, time.Now).Handler()
+	c := loginAsSteward(t, h, lib, key)
+
+	rec := getWithCookie(t, h, "/b/"+lib.Slug+"/steward/", c)
+	body := rec.Body.String()
+	if !strings.Contains(body, `action="`+stewardPath(lib)+`logout"`) {
+		t.Errorf("hub does not render a form posting to the logout route:\n%s", body)
+	}
+	if !strings.Contains(body, `method="post"`) {
+		t.Errorf("hub's logout control is not a POST form:\n%s", body)
+	}
+}
+
 // The Critical this round's review found: the empty state must gate on
 // WORK, not on an empty shelf. §6's own example puts three items on the
 // shelf and still calls it "Nothing needs you" — a box with items shelved,
