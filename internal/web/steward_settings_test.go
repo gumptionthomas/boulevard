@@ -125,6 +125,56 @@ func TestSettingsSaveDoesNotRedirectThroughANoticeParam(t *testing.T) {
 	}
 }
 
+// Final review, F8: every other test in this file omits the `approval` key
+// entirely, and an unchecked HTML checkbox is simply not submitted — so the
+// suite had never once observed ApprovalRequired surviving a save as true.
+// It was driven to false on every save the tests performed, and it is the
+// one setting that decides whether the approval queue exists at all. A case
+// each way: checked survives as true, and a follow-up save with the field
+// omitted (an unchecked box, as a browser would actually submit it) drives
+// it back to false.
+func TestSettingsSaveApprovalRequired(t *testing.T) {
+	st, lib, key := stewardServer(t)
+	h := New(st, time.Now).Handler()
+	c := loginAsSteward(t, h, lib, key)
+
+	base := url.Values{
+		"name": {"Fairview"}, "location": {"4th & Fairview"},
+		"slots": {"12"}, "max_age": {"90"}, "copies": {"3"},
+	}
+
+	checked := url.Values{}
+	for k, v := range base {
+		checked[k] = v
+	}
+	checked.Set("approval", "on")
+	postForm(t, h, "/b/"+lib.Slug+"/steward/settings", checked, c)
+
+	got, err := st.LibraryByID(context.Background(), lib.ID)
+	if err != nil {
+		t.Fatalf("read back: %v", err)
+	}
+	if !got.ApprovalRequired {
+		t.Error("ApprovalRequired = false, want true after saving with the box checked")
+	}
+
+	unchecked := url.Values{}
+	for k, v := range base {
+		unchecked[k] = v
+	}
+	// approval intentionally omitted — an unchecked checkbox is not
+	// submitted at all.
+	postForm(t, h, "/b/"+lib.Slug+"/steward/settings", unchecked, c)
+
+	got, err = st.LibraryByID(context.Background(), lib.ID)
+	if err != nil {
+		t.Fatalf("read back: %v", err)
+	}
+	if got.ApprovalRequired {
+		t.Error("ApprovalRequired = true, want false after saving with the box unchecked")
+	}
+}
+
 // slots = 0, negative max age, negative copies, blank name: each re-renders
 // the form with an error and changes nothing.
 func TestSettingsRejectBadNumbers(t *testing.T) {
@@ -150,6 +200,7 @@ func TestSettingsRejectBadNumbers(t *testing.T) {
 		{"negative max age", "max_age", "-1"},
 		{"negative copies", "copies", "-1"},
 		{"blank name", "name", "   "},
+		{"blank-after-trim location", "location", "   "},
 	}
 
 	for _, tc := range cases {
