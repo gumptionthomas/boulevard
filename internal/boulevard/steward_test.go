@@ -2,6 +2,7 @@ package boulevard
 
 import (
 	"bytes"
+	"os"
 	"strings"
 	"testing"
 )
@@ -33,6 +34,22 @@ func TestStewardKeyMatchesOnlyTheRightKey(t *testing.T) {
 	}
 	if StewardKeyMatches(hash, "") {
 		t.Error("the empty key matched")
+	}
+}
+
+// Final review, F7: spec §10 asked for this explicitly — "Assert the call,
+// since a `==` would pass every behavioural test." Every test above passes
+// identically whether StewardKeyMatches compares in constant time or with a
+// plain `==`; a timing side channel is not observable from a functional
+// test at all. This reads the source and checks for the call itself. Crude,
+// and it is what the spec asked for.
+func TestStewardKeyMatchesUsesConstantTimeCompare(t *testing.T) {
+	src, err := os.ReadFile("steward.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(src), "subtle.ConstantTimeCompare") {
+		t.Error("StewardKeyMatches must compare with subtle.ConstantTimeCompare, not ==")
 	}
 }
 
