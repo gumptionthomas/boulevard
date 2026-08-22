@@ -10,10 +10,12 @@
 //
 //   - Resolution boundaries are handed an identifier and return what it
 //     names, including which library that is: LibraryBySlug, LibraryByID,
-//     TokenBySecret, SessionByID, and DeleteSession. Resolving the library
-//     is their job, so they cannot be given one.
+//     TokenBySecret, SessionByID, DeleteSession, StewardSessionByID, and
+//     DeleteStewardSession. Resolving the library is their job, so they
+//     cannot be given one.
 //   - Host-scoped queries ask about the host rather than a shelf, so a
-//     library identifier would be meaningless on them: LibrarySlugs.
+//     library identifier would be meaningless on them: LibrarySlugs and
+//     SweepExpiredStewardSessions.
 //   - Everything else takes an explicit boulevard.LibraryID, and where it
 //     also takes something already carrying one — RecordScan — it rejects
 //     the pair if they disagree.
@@ -78,6 +80,21 @@ var ErrShelfFull = errors.New("shelf is full")
 // needs to tell a mistyped handle from a second `reshelve` on the same
 // item.
 var ErrNotShed = errors.New("item is not in the shed")
+
+// ErrAllPinned is a full shelf with nothing evictable. ApproveItem's
+// comment has described this since Milestone 2 and called it
+// unreachable "today, because no code sets pinned" — Milestone 4a is
+// when it can fire. The answer is to refuse the approval naming the
+// pins, never to evict one: a pin is the steward saying "this stays".
+var ErrAllPinned = errors.New("every item on the shelf is pinned")
+
+// ErrNotShelved distinguishes "no such item" from "that item is not on
+// the shelf", the way ErrNotPending and ErrNotShed already do for the
+// queue and the shed.
+var ErrNotShelved = errors.New("item is not on the shelf")
+
+// ErrPinLimit is the fourth pin. DESIGN.md §5 caps pins at 3.
+var ErrPinLimit = errors.New("pin limit reached")
 
 // FileMode is what the database and its sidecars are kept at.
 //

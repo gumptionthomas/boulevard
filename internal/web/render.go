@@ -25,10 +25,15 @@ func (s *Server) render(w http.ResponseWriter, status int, name string, data any
 	// licensing should be compliant anyway — and a handler that forgets a
 	// field is exactly the thinking it is meant to remove. Only about.html
 	// carried the link while eight pages existed.
-	if pd, ok := data.(pageData); ok {
-		pd.SourceURL = version.RepoURL
-		pd.BuildLine = "boulevard " + version.Version + " (" + version.Commit + ")"
-		data = pd
+	switch d := data.(type) {
+	case pageData:
+		d.SourceURL = version.RepoURL
+		d.BuildLine = "boulevard " + version.Version + " (" + version.Commit + ")"
+		data = d
+	case stewardData:
+		d.SourceURL = version.RepoURL
+		d.BuildLine = "boulevard " + version.Version + " (" + version.Commit + ")"
+		data = d
 	}
 
 	tmpl, ok := s.tmpl[name]

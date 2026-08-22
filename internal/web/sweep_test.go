@@ -57,3 +57,30 @@ func TestItemPageSweepsToo(t *testing.T) {
 		t.Errorf("status = %d, want 404 — an expired item still serves at its own URL", rec.Code)
 	}
 }
+
+// Final review, F5: SweepExpiredItems ran from the public shelf and item
+// handlers and nowhere a steward looked, so on a quiet box (DESIGN.md's
+// typical case) a steward page could report an item as still shelved —
+// with live Pin and Remove controls on it — for as long as nobody loaded
+// the public shelf. Modeled directly on TestShelfSweepsBeforeItRenders
+// above, but through requireSteward instead of the public path.
+func TestStewardShelfSweepsBeforeItRenders(t *testing.T) {
+	st := testStore(t)
+	lib := addLibrary(t, st, "fairview")
+	now := time.Date(2026, time.August, 15, 12, 0, 0, 0, time.UTC)
+	shelvedAt := now.AddDate(0, 0, -200)
+
+	it := leaveOne(t, st, lib, "long expired", "https://example.org/old", shelvedAt)
+	if _, err := st.ApproveItem(context.Background(), lib.ID, it.ID, shelvedAt); err != nil {
+		t.Fatal(err)
+	}
+	key := armWithStewardKey(t, st, lib)
+
+	h := New(st, func() time.Time { return now }).Handler()
+	c := loginAsSteward(t, h, lib, key)
+
+	rec := getWithCookie(t, h, "/b/"+lib.Slug+"/steward/shelf", c)
+	if strings.Contains(rec.Body.String(), "long expired") {
+		t.Error("the steward shelf page rendered an item past max_age_days")
+	}
+}

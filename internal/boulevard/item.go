@@ -48,6 +48,7 @@ const (
 	ShedEvicted ShedReason = "evicted" // pushed off a full shelf, FIFO
 	ShedExpired ShedReason = "expired" // older than max_age_days
 	ShedTaken   ShedReason = "taken"   // taken to zero copies
+	ShedRemoved ShedReason = "removed" // the steward took it off the shelf
 )
 
 // Label is how the shed CLI names a reason.
@@ -59,6 +60,8 @@ func (r ShedReason) Label() string {
 		return "expired"
 	case ShedTaken:
 		return "taken to zero"
+	case ShedRemoved:
+		return "you took it down"
 	default:
 		return "shed"
 	}

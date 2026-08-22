@@ -1,0 +1,66 @@
+{{define "steward-hub.html"}}{{template "layout" .}}{{end}}
+{{define "body"}}
+<main>
+  <div class="site">{{.LibraryName}}</div>
+  <h1>Steward</h1>
+  {{if and (eq .Waiting 0) (eq .Shed 0)}}
+    {{/* The state a steward sees on most visits: walking past their own box
+         and nothing needing them. This is about WORK, not emptiness — §6's
+         own example is "Three things on the shelf, nothing waiting, nothing
+         in the shed" and still calls it "Nothing needs you." Gating on
+         .Shelved too would mean the screen only ever appears on a box
+         nobody has used, which is the one box that never needs a steward's
+         attention because it has none to give. DESIGN.md §6 calls the
+         public empty state arguably the most important screen and asks for
+         real design attention; this is its admin counterpart, so it gets
+         the same .empty treatment shelf.html gives the public shelf rather
+         than reading as a blank or broken page.
+
+         Final review, F3: this used to replace the four rows below rather
+         than sit above them, which meant the state a steward sees most
+         offered no route to Settings, the shelf, or the shed. That's
+         backwards for the two things this state coexists with — settings
+         (retiring SQL-client editing is half the point of this milestone)
+         and pinning (done precisely when nothing is waiting) — and it also
+         meant a deep link that bounced through login always landed
+         somewhere with no way onward. The rows stay put; this banner is an
+         all-clear placed above them, not a menu replacing them. */}}
+    <div class="empty">
+      <h2>Nothing needs you.</h2>
+      <p class="dim">{{if eq .Shelved 0}}Nothing{{else if eq .Shelved 1}}One thing{{else}}{{.Shelved}} things{{end}} on the shelf, nothing waiting, nothing in the shed.</p>
+    </div>
+  {{end}}
+  <a class="row" href="{{.StewardURL}}queue">
+    <span class="row-label">Waiting for you
+      <span class="row-detail">The approval queue</span>
+    </span>
+    <span class="row-count">{{.Waiting}}</span>
+  </a>
+  <a class="row" href="{{.StewardURL}}shelf">
+    <span class="row-label">On the shelf
+      <span class="row-detail">{{.Shelved}} of {{.Slots}} slots{{if .Pinned}} · {{.Pinned}} pinned{{end}}</span>
+    </span>
+    <span class="row-count">{{.Shelved}}</span>
+  </a>
+  <a class="row" href="{{.StewardURL}}shed">
+    <span class="row-label">In the shed
+      <span class="row-detail">
+        {{if .Shed}}{{range $reason, $n := .ShedWhy}}<span class="tag">{{$n}} {{$reason}}</span>{{end}}{{else}}Nothing here{{end}}
+      </span>
+    </span>
+    <span class="row-count">{{.Shed}}</span>
+  </a>
+  <a class="row last" href="{{.StewardURL}}settings">
+    <span class="row-label">Settings
+      <span class="row-detail">Slots, copies, expiry, approval</span>
+    </span>
+  </a>
+  <a class="btn" href="{{.ShelfURL}}">Back to the shelf</a>
+  {{/* F2: no template pointed at the logout route despite it being routed,
+       implemented and tested — a steward logged in on a borrowed phone had
+       no way to end a thirty-day, SameSite=Strict session. */}}
+  <form method="post" action="{{.StewardURL}}logout">
+    <button class="linkish" type="submit">Log out</button>
+  </form>
+</main>
+{{end}}

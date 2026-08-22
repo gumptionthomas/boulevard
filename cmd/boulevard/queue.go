@@ -278,6 +278,26 @@ func decide(args []string, verb string) int {
 
 	evicted, err := s.ApproveItem(ctx, lib.ID, it.ID, time.Now())
 	if err != nil {
+		if errors.Is(err, store.ErrAllPinned) {
+			// err already names the count and the capacity — store.ApproveItem
+			// wraps ErrAllPinned as "%d of %d slots, and nothing evictable" —
+			// the same shape shed.go uses for ErrShelfFull, so this prints
+			// that rather than recomputing it. A count alone does not tell
+			// the steward which items are blocking, so PinnedItems follows
+			// to name them.
+			pinned, pErr := s.PinnedItems(ctx, lib.ID)
+			if pErr != nil {
+				fmt.Fprintf(os.Stderr, "  x  %v\n", pErr)
+				return exitIO
+			}
+			fmt.Fprintf(os.Stderr, "  x  %v — nothing was approved.\n"+
+				"     Unpin something or raise the slot count first.\n", err)
+			width := handleWidth(pinned)
+			for _, p := range pinned {
+				fmt.Fprintf(os.Stderr, "     [%s]  %s\n", strings.ToLower(idPrefix(p.ID, width)), displayLine(p.Note))
+			}
+			return exitUsage
+		}
 		fmt.Fprintf(os.Stderr, "  x  %v\n", err)
 		return decideExit(err)
 	}

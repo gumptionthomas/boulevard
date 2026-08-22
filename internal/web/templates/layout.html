@@ -84,6 +84,16 @@ button[disabled] { opacity:.4; }
   .linkish { border-color:#fdfcf9; color:#fdfcf9; }
   .err { color:#e8927f; }
 }
+/* input[type=checkbox] gets its own rule: the block input/textarea/select
+   rule above stretches every field to 100% width with 13px of padding,
+   which would blow a checkbox up to the width of the page. Sized above the
+   browser default instead — settings are still read one-handed — and
+   accent-color (not a hand-rolled border/background pair) tracks both
+   colour schemes for free with a native, already-accessible control. */
+input[type="checkbox"] { width:22px; height:22px; padding:0; margin:0 0 8px; accent-color:#14130d; }
+@media (prefers-color-scheme: dark) {
+  input[type="checkbox"] { accent-color:#fdfcf9; }
+}
 .item { padding:20px 0; border-bottom:1px solid #e4dfd2; }
 .item:last-of-type { border-bottom:none; }
 .note { font:400 17px/1.45 ui-serif, Georgia, serif; margin:0 0 10px; }
@@ -102,11 +112,32 @@ button[disabled] { opacity:.4; }
 .item.band { padding-left:14px; border-left:3px solid #c9c3b2; border-bottom:none; }
 footer { max-width:34rem; margin:0 auto; padding:0 20px 30px; font-size:12.5px; color:#6b6659; }
 footer a { color:inherit; }
+/* The steward hub's four rows: each is a link to its own page before it is
+   text, so the whole row is the tap target — not just a small "view" word
+   at the end of it — and there is no hover state to lean on outdoors.
+   Modeled on .item's border-bottom rhythm, but flex to hold a bold count
+   against the right edge without a table. */
+a.row {
+  display:flex; justify-content:space-between; align-items:center; gap:16px;
+  padding:20px 0; border-bottom:1px solid #e4dfd2; text-decoration:none; color:inherit;
+}
+/* :last-of-type filters by tag, and the element after the last a.row is
+   a.btn ("Back to the shelf"), not another a.row — so a.row:last-of-type
+   never matched and every row, including the one right before the button,
+   kept its border-bottom. .last marks the actual last row explicitly
+   (steward-hub.html's Settings row) instead of depending on DOM position. */
+a.row.last { border-bottom:none; }
+.row-label { font-size:16px; font-weight:600; }
+.row-detail { display:block; font-size:13px; font-weight:400; color:#6b6659; margin-top:3px; }
+.row-count { font:700 22px/1 ui-serif, Georgia, serif; flex-shrink:0; }
+.tag { display:inline-block; font-size:13px; color:#6b6659; margin-right:10px; }
 @media (prefers-color-scheme: dark) {
   .item { border-color:#33302a; }
   .hint, footer { color:#a9a396; }
   .bandlabel { color:#a9a396; border-color:#33302a; }
   .item.band { border-left-color:#3a372c; }
+  a.row { border-color:#33302a; }
+  .row-detail, .tag { color:#a9a396; }
 }
 </style>
 </head>

@@ -160,6 +160,50 @@ func TestMigrateDefaultsMatchDesign(t *testing.T) {
 	}
 }
 
+func TestMigration5AddsStewardKeyAndSessions(t *testing.T) {
+	st := openTemp(t)
+
+	var version int
+	if err := st.db.QueryRow(
+		`SELECT MAX(version) FROM schema_migrations`).Scan(&version); err != nil {
+		t.Fatalf("read schema version: %v", err)
+	}
+	if version < 5 {
+		t.Fatalf("schema version = %d, want at least 5", version)
+	}
+
+	for _, q := range []string{
+		`SELECT steward_key_hash FROM libraries LIMIT 1`,
+		`SELECT id, library_id, created_at, expires_at FROM steward_sessions LIMIT 1`,
+	} {
+		// Close each Rows before the next query. SetMaxOpenConns(1) means an
+		// unclosed Rows owns the only connection and the next query hangs.
+		rows, err := st.db.Query(q)
+		if err != nil {
+			t.Errorf("%s: %v", q, err)
+			continue
+		}
+		rows.Close()
+	}
+}
+
+// The default is what makes every existing database correct without a data
+// migration, and it is also the "no key set" state that 404s the admin.
+func TestStewardKeyHashDefaultsToEmpty(t *testing.T) {
+	st := openTemp(t)
+	lib := seedLibrary(t, st)
+
+	var hash string
+	if err := st.db.QueryRow(
+		`SELECT steward_key_hash FROM libraries WHERE id = ?`,
+		string(lib.ID)).Scan(&hash); err != nil {
+		t.Fatalf("read hash: %v", err)
+	}
+	if hash != "" {
+		t.Errorf("hash = %q, want empty on a fresh library", hash)
+	}
+}
+
 func TestLibrarySettingsRoundTrip(t *testing.T) {
 	ctx, s := context.Background(), openTemp(t)
 	lib := makeLibrary(t)

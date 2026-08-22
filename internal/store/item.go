@@ -55,6 +55,15 @@ func (s *Store) PendingItems(ctx context.Context, id boulevard.LibraryID) ([]bou
 		`WHERE library_id = ? AND state = 'pending' ORDER BY left_at ASC, id ASC`)
 }
 
+// PinnedItems lists what a fourth pin or an all-pinned approval refusal
+// needs to name: DESIGN.md §5/§6 both require the steward be told *which*
+// items are blocking, not just how many. Oldest-pinned first, the same
+// order ApproveItem's eviction scan would consider them in.
+func (s *Store) PinnedItems(ctx context.Context, id boulevard.LibraryID) ([]boulevard.Item, error) {
+	return s.itemsWhere(ctx, id,
+		`WHERE library_id = ? AND state = 'shelved' AND pinned = 1 ORDER BY shelved_at ASC, id ASC`)
+}
+
 func (s *Store) itemsWhere(ctx context.Context, id boulevard.LibraryID, clause string) ([]boulevard.Item, error) {
 	rows, err := s.db.QueryContext(ctx, `SELECT `+itemColumns+` FROM items `+clause, string(id))
 	if err != nil {
@@ -141,9 +150,23 @@ func (s *Store) IncrementViews(ctx context.Context, id boulevard.LibraryID, item
 // `reshelve`, which widens the window in which one of them commits between
 // this transaction's read and its write and costs it the snapshot. Fixing
 // that is `_txlock=immediate` on the DSN, which forces every transaction to
-// take its write lock up front instead of deferring — out of scope for this
-// fix wave, since it changes the locking mode of every transaction in the
-// binary.
+// take its write lock up front instead of deferring.
+//
+// Final review, steward-desk fix wave: still deferred, but not because it
+// is out of scope — because it is not actually reachable through this
+// milestone's own surface. SQLITE_BUSY_SNAPSHOT needs two open
+// connections racing each other, and SetMaxOpenConns(1) means `serve`
+// itself only ever holds one; the failure needs a second *process* against
+// the same file — a steward running `approve` over SSH while the web
+// admin this milestone ships is also live. That path now competes with a
+// steward's *normal* route through the web admin rather than being the
+// only route, which arguably narrows the window this milestone opens
+// rather than widening it. Milestone 4b must schedule `_txlock=immediate`
+// explicitly rather than inherit this deferral silently: export is another
+// long-running second-process reader, and whoever adds it must first
+// verify `modernc.org/sqlite` actually honours `_txlock` at all — the DSN
+// uses `_pragma=` syntax throughout, and a `_txlock` key the driver
+// silently ignores would look fixed without being fixed.
 func (s *Store) ApproveItem(ctx context.Context, id boulevard.LibraryID, itemID string, now time.Time) (string, error) {
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
@@ -185,16 +208,36 @@ func (s *Store) ApproveItem(ctx context.Context, id boulevard.LibraryID, itemID 
 
 	var evicted string
 	if shelved >= slots {
-		// `pinned = 0` can match nothing: Milestone 4 allows 3 pins, so a
-		// steward with slots = 3 and three pinned items has a full shelf with
-		// nothing evictable. Today no code sets pinned, so this cannot fire;
-		// when it can, the answer is to refuse the approval with a message
-		// naming the pins, not to evict one.
-		if err := tx.QueryRowContext(ctx,
+		// `pinned = 0` can match nothing: a steward with slots = 3 and three
+		// pinned items has a full shelf with nothing evictable. Until this
+		// milestone no code set `pinned`, so the case could not fire; Task 3's
+		// PinItem is what makes it reachable now.
+		err := tx.QueryRowContext(ctx,
 			`SELECT id FROM items
 			  WHERE library_id = ? AND state = 'shelved' AND pinned = 0
 			  ORDER BY shelved_at ASC, id ASC LIMIT 1`,
-			string(id)).Scan(&evicted); err != nil {
+			string(id)).Scan(&evicted)
+		// The shelved > 0 guard matters: with slots <= 0 (only reachable
+		// through the zero-valued-Library trap this method's doc comment
+		// already warns about), shelved >= slots holds on an empty shelf
+		// too, and the query above returns sql.ErrNoRows for "there is
+		// nothing here" exactly as it does for "everything here is pinned".
+		// Without the guard, an empty shelf would be confidently misreported
+		// as an all-pinned one instead of falling through to the generic,
+		// honestly-unhelpful wrap below.
+		if errors.Is(err, sql.ErrNoRows) && shelved > 0 {
+			// Every shelved item is pinned. Refuse rather than evict: a pin
+			// is the steward saying "this stays", and silently overriding it
+			// is exactly the surprise §5 warns generates steward labour.
+			//
+			// The wrap carries the numbers and ErrAllPinned carries the
+			// phrase, so %v reads as one sentence rather than repeating
+			// "pinned" twice — this is also the only place the phrase is
+			// written; the CLI and the future web handler both name the
+			// pinned items via PinnedItems instead of re-deriving text.
+			return "", fmt.Errorf("%d of %d slots, and nothing evictable: %w", shelved, slots, ErrAllPinned)
+		}
+		if err != nil {
 			return "", fmt.Errorf("find the oldest shelved item: %w", err)
 		}
 		if _, err := tx.ExecContext(ctx,
@@ -219,6 +262,139 @@ func (s *Store) ApproveItem(ctx context.Context, id boulevard.LibraryID, itemID 
 		return "", fmt.Errorf("commit approve: %w", err)
 	}
 	return evicted, nil
+}
+
+// PinItem marks a shelved item as furniture: never evicted, never expired,
+// not takeable (DESIGN.md §5). maxPins is passed in rather than read from
+// settings because §5 fixes it at 3 for every library.
+//
+// The count and the write share one transaction. Two stewards pinning at
+// once through separate processes would otherwise both see two pins and
+// both write a third.
+func (s *Store) PinItem(ctx context.Context, id boulevard.LibraryID, itemID string, maxPins int) error {
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("begin pin: %w", err)
+	}
+	defer tx.Rollback()
+
+	var state string
+	var pinned int
+	err = tx.QueryRowContext(ctx,
+		`SELECT state, pinned FROM items WHERE library_id = ? AND id = ?`,
+		string(id), itemID).Scan(&state, &pinned)
+	if errors.Is(err, sql.ErrNoRows) {
+		return fmt.Errorf("item %q: %w", itemID, ErrNotFound)
+	}
+	if err != nil {
+		return fmt.Errorf("look up item %q: %w", itemID, err)
+	}
+	if boulevard.ItemState(state) != boulevard.ItemShelved {
+		return fmt.Errorf("item %q is %s: %w", itemID, state, ErrNotShelved)
+	}
+	if pinned == 1 {
+		return nil // already pinned; nothing to do
+	}
+
+	var count int
+	if err := tx.QueryRowContext(ctx,
+		`SELECT COUNT(*) FROM items WHERE library_id = ? AND state = 'shelved' AND pinned = 1`,
+		string(id)).Scan(&count); err != nil {
+		return fmt.Errorf("count pins: %w", err)
+	}
+	if count >= maxPins {
+		return fmt.Errorf("%d of %d pins used: %w", count, maxPins, ErrPinLimit)
+	}
+
+	if _, err := tx.ExecContext(ctx,
+		`UPDATE items SET pinned = 1 WHERE library_id = ? AND id = ?`,
+		string(id), itemID); err != nil {
+		return fmt.Errorf("pin %q: %w", itemID, err)
+	}
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("commit pin: %w", err)
+	}
+	return nil
+}
+
+// UnpinItem returns an item to ordinary stock: evictable, expirable,
+// takeable again.
+func (s *Store) UnpinItem(ctx context.Context, id boulevard.LibraryID, itemID string) error {
+	return s.setShelvedFlag(ctx, id, itemID, `UPDATE items SET pinned = 0 WHERE library_id = ? AND id = ?`)
+}
+
+// RemoveItem is the steward taking something off the shelf. It sheds rather
+// than releases, so a misfire is recoverable by re-shelving and `release`
+// stays the deliberate second step — the same soft-delete reasoning §5 gives
+// for rejection.
+//
+// It clears `pinned` as it sheds: a pinned item that comes back from the
+// shed later should return as ordinary stock rather than silently holding a
+// pin slot while off the shelf.
+func (s *Store) RemoveItem(ctx context.Context, id boulevard.LibraryID, itemID string, now time.Time) error {
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("begin remove: %w", err)
+	}
+	defer tx.Rollback()
+
+	var state string
+	err = tx.QueryRowContext(ctx,
+		`SELECT state FROM items WHERE library_id = ? AND id = ?`,
+		string(id), itemID).Scan(&state)
+	if errors.Is(err, sql.ErrNoRows) {
+		return fmt.Errorf("item %q: %w", itemID, ErrNotFound)
+	}
+	if err != nil {
+		return fmt.Errorf("look up item %q: %w", itemID, err)
+	}
+	if boulevard.ItemState(state) != boulevard.ItemShelved {
+		return fmt.Errorf("item %q is %s: %w", itemID, state, ErrNotShelved)
+	}
+
+	if _, err := tx.ExecContext(ctx,
+		`UPDATE items SET state = 'shed', shed_at = ?, shed_reason = ?, pinned = 0
+		  WHERE library_id = ? AND id = ?`,
+		now.UTC().Format(time.RFC3339), string(boulevard.ShedRemoved),
+		string(id), itemID); err != nil {
+		return fmt.Errorf("remove %q: %w", itemID, err)
+	}
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("commit remove: %w", err)
+	}
+	return nil
+}
+
+// setShelvedFlag runs a one-column update against a shelved item, reading
+// state first so "never existed" and "not on the shelf" stay different
+// answers.
+func (s *Store) setShelvedFlag(ctx context.Context, id boulevard.LibraryID, itemID, stmt string) error {
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("begin update: %w", err)
+	}
+	defer tx.Rollback()
+
+	var state string
+	err = tx.QueryRowContext(ctx,
+		`SELECT state FROM items WHERE library_id = ? AND id = ?`,
+		string(id), itemID).Scan(&state)
+	if errors.Is(err, sql.ErrNoRows) {
+		return fmt.Errorf("item %q: %w", itemID, ErrNotFound)
+	}
+	if err != nil {
+		return fmt.Errorf("look up item %q: %w", itemID, err)
+	}
+	if boulevard.ItemState(state) != boulevard.ItemShelved {
+		return fmt.Errorf("item %q is %s: %w", itemID, state, ErrNotShelved)
+	}
+	if _, err := tx.ExecContext(ctx, stmt, string(id), itemID); err != nil {
+		return fmt.Errorf("update %q: %w", itemID, err)
+	}
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("commit update: %w", err)
+	}
+	return nil
 }
 
 // RejectItem releases a pending item. §5 calls release a soft delete: the

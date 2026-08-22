@@ -5,6 +5,7 @@ import (
 	"errors"
 	"net/http"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/gumptionthomas/boulevard/internal/boulevard"
@@ -151,7 +152,14 @@ func (s *Server) grant(w http.ResponseWriter, r *http.Request, tok boulevard.Tok
 		MaxAge:   int(boulevard.SessionTTL.Seconds()),
 		HttpOnly: true,
 		SameSite: http.SameSiteLaxMode,
-		Secure:   r.TLS != nil,
+		// Final review, F12: r.TLS != nil is never true in the deployment
+		// §8 recommends — serve terminates no TLS itself, so an https://
+		// install always sits behind a reverse proxy, and r.TLS on the
+		// request this process actually receives is always nil. Derived
+		// from the library's own BaseURL instead, matching stewardCookie
+		// (steward.go), which already reasons through why r.TLS cannot
+		// answer this question here.
+		Secure: strings.HasPrefix(lib.BaseURL, "https://"),
 	})
 	http.Redirect(w, r, shelfURL(lib), http.StatusFound)
 }

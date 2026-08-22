@@ -1,0 +1,40 @@
+{{define "steward-settings.html"}}{{template "layout" .}}{{end}}
+{{define "body"}}
+<main>
+  <div class="site">{{.LibraryName}}</div>
+  <h1>Settings</h1>
+  {{if .Error}}<p class="err">{{.Error}}</p>{{end}}
+  {{if .Notice}}<p class="dim">{{.Notice}}</p>{{end}}
+  <form method="post" action="{{.StewardURL}}settings">
+    <label for="name">Name</label>
+    <input id="name" name="name" value="{{.Library.Name}}">
+    {{with .Errors.name}}<p class="err">{{.}}</p>{{end}}
+
+    <label for="location">Location</label>
+    <input id="location" name="location" value="{{.Library.LocationLabel}}">
+    {{with .Errors.location}}<p class="err">{{.}}</p>{{end}}
+
+    <label for="slots">Shelf slots</label>
+    <input id="slots" name="slots" type="number" inputmode="numeric" min="1" step="1" value="{{.Library.Slots}}">
+    <p class="hint">Lowering this removes nothing right away — the shelf drains one item per approval until it fits.</p>
+    {{with .Errors.slots}}<p class="err">{{.}}</p>{{end}}
+
+    <label for="max_age">Max age, in days</label>
+    <input id="max_age" name="max_age" type="number" inputmode="numeric" min="0" step="1" value="{{.Library.MaxAgeDays}}">
+    <p class="hint">0 means an item never expires on its own.</p>
+    {{with .Errors.max_age}}<p class="err">{{.}}</p>{{end}}
+
+    <label for="copies">Default copies</label>
+    <input id="copies" name="copies" type="number" inputmode="numeric" min="0" step="1" value="{{.Library.DefaultCopies}}">
+    <p class="hint">How many copies a newly approved item starts with.</p>
+    {{with .Errors.copies}}<p class="err">{{.}}</p>{{end}}
+
+    <label for="approval">Require approval before an item reaches the shelf</label>
+    <input id="approval" name="approval" type="checkbox" value="1" {{if .Library.ApprovalRequired}}checked{{end}}>
+    <p class="hint">Off means everything left goes straight to the shelf.</p>
+
+    <button type="submit">Save</button>
+  </form>
+  <a class="btn" href="{{.StewardURL}}">Back to the hub</a>
+</main>
+{{end}}

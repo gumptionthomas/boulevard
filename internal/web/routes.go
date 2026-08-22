@@ -1,6 +1,7 @@
 package web
 
 import (
+	"io"
 	"net/http"
 
 	"github.com/gumptionthomas/boulevard/internal/boulevard"
@@ -43,5 +44,75 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("POST /b/{slug}/i/{id}/take", s.handleTake)
 	mux.HandleFunc("POST /b/{slug}/i/{id}/untake", s.handleUntake)
 	mux.HandleFunc("GET /s/{token}", s.handleScan)
-	return logRequests(mux)
+
+	mux.HandleFunc("GET /b/{slug}/steward/{$}", s.handleStewardHub)
+	mux.HandleFunc("GET /b/{slug}/steward/login", s.handleStewardLogin)
+	mux.HandleFunc("POST /b/{slug}/steward/login", s.handleStewardLoginSubmit)
+	mux.HandleFunc("POST /b/{slug}/steward/logout", s.handleStewardLogout)
+	mux.HandleFunc("GET /b/{slug}/steward/queue", s.handleStewardQueue)
+	mux.HandleFunc("GET /b/{slug}/steward/shelf", s.handleStewardShelf)
+	mux.HandleFunc("GET /b/{slug}/steward/shed", s.handleStewardShed)
+	mux.HandleFunc("GET /b/{slug}/steward/settings", s.handleStewardSettings)
+	mux.HandleFunc("POST /b/{slug}/steward/settings", s.handleStewardSettingsSubmit)
+	// POST only, like every steward mutation (and take before it): a GET
+	// mutation is shareable, prefetchable by a browser or link scanner, and
+	// triggerable by anything that renders a URL.
+	mux.HandleFunc("POST /b/{slug}/steward/i/{id}/approve", s.handleStewardApprove)
+	mux.HandleFunc("POST /b/{slug}/steward/i/{id}/reject", s.handleStewardReject)
+	mux.HandleFunc("POST /b/{slug}/steward/i/{id}/remove", s.handleStewardRemove)
+	mux.HandleFunc("POST /b/{slug}/steward/i/{id}/pin", s.handleStewardPin)
+	mux.HandleFunc("POST /b/{slug}/steward/i/{id}/unpin", s.handleStewardUnpin)
+	mux.HandleFunc("POST /b/{slug}/steward/i/{id}/reshelve", s.handleStewardReshelve)
+	mux.HandleFunc("POST /b/{slug}/steward/i/{id}/release", s.handleStewardRelease)
+	return logRequests(hideUnmatchedMethods(mux))
+}
+
+// hideUnmatchedMethods turns net/http's 405 into a plain 404.
+//
+// Method matching happens in the mux, before any handler runs. Every steward
+// mutation is POST-only, so a GET at /b/{slug}/steward/i/{id}/approve never
+// reaches requireSteward — and requireSteward is the only thing that
+// enforces "404 until a key exists" (DESIGN.md §6). The guard sat behind the
+// door it was meant to guard: on a box with no steward key, that GET
+// returned 405 with an Allow header naming the method it wanted, confirming
+// the route was real. The slug did not even have to exist, so the whole
+// admin route shape was enumerable against any host before a single key had
+// been minted. A fresh install must not advertise a surface that is not
+// armed, and a 405 advertises more than the 403 that rule already forbids.
+//
+// This is deliberately blunt: it covers the public POST-only routes (take,
+// untake) too, where the disclosure is milder but the reasoning is the same.
+// Nothing here wants to tell a stranger that a path exists but wants a
+// different verb.
+func hideUnmatchedMethods(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		next.ServeHTTP(&methodHider{ResponseWriter: w}, r)
+	})
+}
+
+// methodHider rewrites one status and swallows the body that followed it.
+// The Allow header is the actual disclosure, so it goes with them.
+type methodHider struct {
+	http.ResponseWriter
+	hidden bool
+}
+
+func (m *methodHider) WriteHeader(status int) {
+	if status == http.StatusMethodNotAllowed {
+		m.hidden = true
+		m.Header().Del("Allow")
+		m.ResponseWriter.WriteHeader(http.StatusNotFound)
+		// Byte-for-byte what http.NotFound writes, so a hidden 405 is
+		// indistinguishable from a path that never existed at all.
+		io.WriteString(m.ResponseWriter, "404 page not found\n")
+		return
+	}
+	m.ResponseWriter.WriteHeader(status)
+}
+
+func (m *methodHider) Write(b []byte) (int, error) {
+	if m.hidden {
+		return len(b), nil
+	}
+	return m.ResponseWriter.Write(b)
 }

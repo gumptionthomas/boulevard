@@ -112,7 +112,15 @@ func TestEveryPageCarriesTheSourceLink(t *testing.T) {
 	srv := New(nil, time.Now)
 	for _, name := range pageTemplates {
 		rec := httptest.NewRecorder()
-		srv.render(rec, http.StatusOK, name, pageData{Title: "x"})
+		// Admin pages carry stewardData, not pageData (see steward.go's
+		// comment on why one struct for both would be a grab bag neither
+		// page could be read against) — render must stamp the footer on
+		// both, so both are exercised here.
+		if strings.HasPrefix(name, "steward-") {
+			srv.render(rec, http.StatusOK, name, stewardData{Title: "x"})
+		} else {
+			srv.render(rec, http.StatusOK, name, pageData{Title: "x"})
+		}
 		body := rec.Body.String()
 		if !strings.Contains(body, version.RepoURL) {
 			t.Errorf("%s carries no source link:\n%s", name, body)

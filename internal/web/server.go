@@ -30,6 +30,8 @@ type Server struct {
 var pageTemplates = []string{
 	"shelf.html", "about.html", "outdated.html", "notyet.html", "invalid.html",
 	"leave.html", "left.html", "item.html",
+	"steward-login.html", "steward-hub.html", "steward-queue.html",
+	"steward-shelf.html", "steward-shed.html", "steward-settings.html",
 }
 
 // New builds a server. `now` is injected so handler tests can sit on an

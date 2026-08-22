@@ -1,0 +1,14 @@
+{{define "steward-login.html"}}{{template "layout" .}}{{end}}
+{{define "body"}}
+<main>
+  <div class="site">{{.LibraryName}}</div>
+  <h1>Steward login</h1>
+  {{if .Error}}<p class="err">{{.Error}}</p>{{end}}
+  <form method="post" action="{{.StewardURL}}login">
+    <label for="key">Steward key</label>
+    <input id="key" name="key" type="password" autocomplete="off" autofocus>
+    <button type="submit">Log in</button>
+  </form>
+  <a class="btn" href="{{.ShelfURL}}">Back to the shelf</a>
+</main>
+{{end}}
