@@ -57,6 +57,149 @@ func TestTokensPageNeverPrintsASecret(t *testing.T) {
 	}
 }
 
+func TestForceActivateFromTheDesk(t *testing.T) {
+	st, lib, key := stewardServer(t)
+	seedWebTokens(t, st, lib)
+	h := New(st, func() time.Time {
+		return time.Date(2026, time.August, 20, 12, 0, 0, 0, time.UTC)
+	}).Handler()
+	c := loginAsSteward(t, h, lib, key)
+
+	rec := postForm(t, h, "/b/"+lib.Slug+"/steward/tokens/3/force-activate", nil, c)
+	if rec.Code != http.StatusSeeOther {
+		t.Fatalf("status = %d, want 303", rec.Code)
+	}
+	if got := rec.Header().Get("Location"); !strings.HasSuffix(got, "/steward/tokens?ok=activated") {
+		t.Errorf("Location = %q, want the tokens page with ok=activated", got)
+	}
+
+	toks, err := st.TokensForLibrary(context.Background(), lib.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, tok := range toks {
+		if tok.PeriodIndex == 3 && tok.State != boulevard.TokenActive {
+			t.Errorf("period 3 state = %q, want active", tok.State)
+		}
+	}
+}
+
+func TestForceActivateRefusalNamesTheState(t *testing.T) {
+	st, lib, key := stewardServer(t)
+	seedWebTokens(t, st, lib)
+	h := New(st, func() time.Time {
+		return time.Date(2026, time.August, 20, 12, 0, 0, 0, time.UTC)
+	}).Handler()
+	c := loginAsSteward(t, h, lib, key)
+
+	postForm(t, h, "/b/"+lib.Slug+"/steward/tokens/3/force-activate", nil, c)
+	rec := postForm(t, h, "/b/"+lib.Slug+"/steward/tokens/3/force-activate", nil, c)
+
+	if rec.Code != http.StatusConflict {
+		t.Fatalf("status = %d, want 409", rec.Code)
+	}
+	if !strings.Contains(rec.Body.String(), "active") {
+		t.Errorf("the refusal does not name the state it found:\n%s", rec.Body.String())
+	}
+}
+
+// Revoking must actually stop the card, and the failure page must be the
+// generic one — §4 requires a revoked secret to be indistinguishable from
+// an unknown one.
+func TestRevokeFromTheDeskStopsTheCardScanning(t *testing.T) {
+	st, lib, key := stewardServer(t)
+	toks := seedWebTokens(t, st, lib)
+	h := New(st, func() time.Time {
+		return time.Date(2026, time.August, 20, 12, 0, 0, 0, time.UTC)
+	}).Handler()
+	c := loginAsSteward(t, h, lib, key)
+
+	// A successful scan is a 302 to the shelf, not a 303 — see scan.go.
+	if rec := get(t, h, "/s/"+toks[0].Secret); rec.Code != http.StatusFound {
+		t.Fatalf("before revoke: scan status = %d, want 302", rec.Code)
+	}
+	if rec := postForm(t, h, "/b/"+lib.Slug+"/steward/tokens/1/revoke", nil, c); rec.Code != http.StatusSeeOther {
+		t.Fatalf("revoke status = %d, want 303", rec.Code)
+	}
+
+	revoked := get(t, h, "/s/"+toks[0].Secret)
+	unknown := get(t, h, "/s/ZZZZZZZZZZZZZZZZZZZZZZZZZZ")
+	if revoked.Code != unknown.Code || revoked.Body.String() != unknown.Body.String() {
+		t.Error("a revoked secret is distinguishable from an unknown one")
+	}
+}
+
+func TestRotateFromTheDeskKeepsTheActiveCard(t *testing.T) {
+	st, lib, key := stewardServer(t)
+	seedWebTokens(t, st, lib)
+	h := New(st, func() time.Time {
+		return time.Date(2026, time.August, 20, 12, 0, 0, 0, time.UTC)
+	}).Handler()
+	c := loginAsSteward(t, h, lib, key)
+
+	if rec := postForm(t, h, "/b/"+lib.Slug+"/steward/tokens/1/force-activate", nil, c); rec.Code != http.StatusSeeOther {
+		t.Fatalf("setup force-activate: status = %d", rec.Code)
+	}
+	before, err := st.TokensForLibrary(context.Background(), lib.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var activeSecret string
+	for _, tok := range before {
+		if tok.State == boulevard.TokenActive {
+			activeSecret = tok.Secret
+		}
+	}
+
+	if rec := postForm(t, h, "/b/"+lib.Slug+"/steward/tokens/rotate", nil, c); rec.Code != http.StatusSeeOther {
+		t.Fatalf("rotate status = %d, want 303", rec.Code)
+	}
+
+	after, err := st.TokensForLibrary(context.Background(), lib.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(after) != tokens.PeriodCount+1 {
+		t.Fatalf("%d tokens after rotate, want %d", len(after), tokens.PeriodCount+1)
+	}
+	fresh := 0
+	kept := false
+	for _, tok := range after {
+		if tok.Secret == activeSecret && tok.State == boulevard.TokenActive {
+			kept = true
+		}
+		if tok.PeriodIndex >= 13 && tok.PeriodIndex <= 24 && tok.State == boulevard.TokenPending {
+			fresh++
+		}
+	}
+	if !kept {
+		t.Error("the card in the door did not survive the rotation")
+	}
+	if fresh != tokens.PeriodCount {
+		t.Errorf("%d fresh cards at 13..24, want %d", fresh, tokens.PeriodCount)
+	}
+}
+
+// A GET at a POST-only route is a byte-identical 404, never a 405.
+func TestTokenMutationsAre404ToAGET(t *testing.T) {
+	st, lib, _ := stewardServer(t)
+	h := New(st, time.Now).Handler()
+	for _, p := range []string{
+		"/b/" + lib.Slug + "/steward/tokens/3/force-activate",
+		"/b/" + lib.Slug + "/steward/tokens/3/extend",
+		"/b/" + lib.Slug + "/steward/tokens/3/revoke",
+		"/b/" + lib.Slug + "/steward/tokens/rotate",
+	} {
+		rec := get(t, h, p)
+		if rec.Code != http.StatusNotFound {
+			t.Errorf("GET %s = %d, want 404", p, rec.Code)
+		}
+		if allow := rec.Header().Get("Allow"); allow != "" {
+			t.Errorf("GET %s set Allow: %q", p, allow)
+		}
+	}
+}
+
 // seedWebTokens inserts a full booklet directly through the store, the same
 // fixture style stewardServerWithItems uses for items — these tests have no
 // reason to drive the booklet command over HTTP.

@@ -37,6 +37,10 @@ var okMessages = map[string]string{
 	"unpinned":        "Unpinned.",
 	"reshelved":       "Reshelved.",
 	"released":        "Released. The row stays, so nothing is lost.",
+	"activated":       "That card is now the one in the door. Put it there.",
+	"extended":        "Extended. The card in the door works for another month.",
+	"revoked":         "Revoked. That card no longer works — swap it before anyone tries it.",
+	"rotated":         "A new booklet is ready. Print it before the card in the door runs out.",
 }
 
 // handleStewardQueue lists what is waiting for a decision.
