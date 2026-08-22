@@ -1,0 +1,38 @@
+{{define "steward-tokens.html"}}{{template "layout" .}}{{end}}
+{{define "body"}}
+<main>
+  <div class="site">{{.LibraryName}}</div>
+  <h1>Tokens</h1>
+  {{if .Error}}<p class="err">{{.Error}}</p>{{end}}
+  {{if .Notice}}<p class="dim">{{.Notice}}</p>{{end}}
+  {{range .TokenRows}}
+    <div class="item">
+      <p class="note">
+        {{.Month}} {{.Year}}
+        {{if .Active}}<span class="tag">in the door</span>{{end}}
+      </p>
+      <p class="src">
+        {{if gt .Booklet 1}}Booklet {{.Booklet}} · {{end}}Card {{.Card}} of 12 ·
+        {{.From}} – {{.Until}} · {{.State}}
+      </p>
+      {{if .Seen}}<p class="dim">seen</p>{{else}}<p class="dim">never scanned</p>{{end}}
+      {{if .CanForce}}
+        <form method="post" action="{{$.StewardURL}}tokens/{{.Period}}/force-activate">
+          <button type="submit">Put this card in the door</button>
+        </form>
+      {{end}}
+      {{if .CanExtend}}
+        <form method="post" action="{{$.StewardURL}}tokens/{{.Period}}/extend">
+          <button type="submit">Give it another month</button>
+        </form>
+      {{end}}
+      {{if .CanRevoke}}
+        <form method="post" action="{{$.StewardURL}}tokens/{{.Period}}/revoke">
+          <button class="linkish" type="submit">Revoke</button>
+        </form>
+      {{end}}
+    </div>
+  {{end}}
+  <a class="btn" href="{{.StewardURL}}">Back to the hub</a>
+</main>
+{{end}}

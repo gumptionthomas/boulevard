@@ -44,9 +44,10 @@ type stewardData struct {
 	Shed    int
 	ShedWhy map[string]int
 
-	Items   []boulevard.Item
-	Library boulevard.Library
-	Errors  map[string]string
+	Items     []boulevard.Item
+	TokenRows []tokenRow
+	Library   boulevard.Library
+	Errors    map[string]string
 
 	// Now is s.now(), carried onto the page so a queue/shelf/shed row can
 	// convert a stored-UTC timestamp into the display zone with

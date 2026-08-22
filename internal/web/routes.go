@@ -52,6 +52,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /b/{slug}/steward/queue", s.handleStewardQueue)
 	mux.HandleFunc("GET /b/{slug}/steward/shelf", s.handleStewardShelf)
 	mux.HandleFunc("GET /b/{slug}/steward/shed", s.handleStewardShed)
+	mux.HandleFunc("GET /b/{slug}/steward/tokens", s.handleStewardTokens)
 	mux.HandleFunc("GET /b/{slug}/steward/settings", s.handleStewardSettings)
 	mux.HandleFunc("POST /b/{slug}/steward/settings", s.handleStewardSettingsSubmit)
 	// POST only, like every steward mutation (and take before it): a GET
