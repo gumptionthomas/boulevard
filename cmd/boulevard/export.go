@@ -53,11 +53,15 @@ func runExport(args []string) int {
 	ctx := context.Background()
 
 	// Counted from the source before the copy, so the numbers describe
-	// exactly what CopyLibraryTo is about to write. Released (rejected)
-	// items are left out of the total on purpose: no other tally in this
-	// codebase counts them either — the steward hub (internal/web/steward.go)
-	// sums pending, shelved and shed the same way — because a rejected item
-	// is a soft-deleted row nothing else surfaces.
+	// exactly what CopyLibraryTo is about to write. These three listings are
+	// reported individually rather than summed into a total on purpose:
+	// CopyLibraryTo copies every row in items, including released (rejected)
+	// ones, and no store method lists those — there is deliberately no
+	// ReleasedItems, matching every other steward-facing tally in this
+	// codebase (the hub in internal/web/steward.go sums the same three).
+	// Any total this command computed from only these three calls would
+	// therefore understate what the file actually holds, so it names what
+	// it can name accurately and asserts nothing about the rest.
 	pending, err := s.PendingItems(ctx, lib.ID)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "  x  %v\n", err)
@@ -78,7 +82,6 @@ func runExport(args []string) int {
 		fmt.Fprintf(os.Stderr, "  x  %v\n", err)
 		return exitIO
 	}
-	itemCount := len(pending) + len(shelved) + len(shed)
 
 	if err := s.CopyLibraryTo(ctx, lib.ID, *out); err != nil {
 		fmt.Fprintf(os.Stderr, "  x  %v\n", err)
@@ -90,8 +93,9 @@ func runExport(args []string) int {
 	// the path only, the same restraint runTokens holds. Naming both things
 	// the steward needs to know: what is in the box, and that it stays
 	// runnable exactly where it lands.
-	fmt.Printf("\n  %s  (1 library, %d items, %d tokens)\n\n"+
+	fmt.Printf("\n  %s  (%d cards · %d on the shelf, %d waiting, %d in the shed)\n\n"+
 		"  It holds every card's secret. Keep it as you keep boulevard.db.\n"+
-		"  Run it as-is:  boulevard serve --db %s\n\n", *out, itemCount, len(toks), *out)
+		"  Run it as-is:  boulevard serve --db %s\n\n",
+		*out, len(toks), len(shelved), len(pending), len(shed), *out)
 	return exitOK
 }
