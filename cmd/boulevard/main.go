@@ -45,6 +45,8 @@ func main() {
 		os.Exit(runExtend(os.Args[2:]))
 	case "revoke":
 		os.Exit(runRevoke(os.Args[2:]))
+	case "export":
+		os.Exit(runExport(os.Args[2:]))
 	case "version":
 		os.Exit(runVersion())
 	default:
@@ -71,6 +73,7 @@ Usage:
   boulevard force-activate [--db PATH] [--slug SLUG] <card number>
   boulevard extend         [--db PATH] [--slug SLUG] <card number>
   boulevard revoke         [--db PATH] [--slug SLUG] <card number>
+  boulevard export         [--db PATH] [--slug SLUG] --out PATH [--force]
   boulevard version
 `)
 }
