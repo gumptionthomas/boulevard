@@ -37,6 +37,14 @@ func main() {
 		os.Exit(runRelease(os.Args[2:]))
 	case "steward-key":
 		os.Exit(runStewardKey(os.Args[2:]))
+	case "tokens":
+		os.Exit(runTokens(os.Args[2:]))
+	case "force-activate":
+		os.Exit(runForceActivate(os.Args[2:]))
+	case "extend":
+		os.Exit(runExtend(os.Args[2:]))
+	case "revoke":
+		os.Exit(runRevoke(os.Args[2:]))
 	case "version":
 		os.Exit(runVersion())
 	default:
@@ -59,6 +67,10 @@ Usage:
   boulevard reshelve [--db PATH] [--slug SLUG] <id>
   boulevard release  [--db PATH] [--slug SLUG] <id>
   boulevard steward-key [--db PATH] [--slug SLUG]
+  boulevard tokens         [--db PATH] [--slug SLUG]
+  boulevard force-activate [--db PATH] [--slug SLUG] <card number>
+  boulevard extend         [--db PATH] [--slug SLUG] <card number>
+  boulevard revoke         [--db PATH] [--slug SLUG] <card number>
   boulevard version
 `)
 }
