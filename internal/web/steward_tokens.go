@@ -6,9 +6,11 @@ import (
 	"net/http"
 	"strconv"
 
+	"github.com/gumptionthomas/boulevard/internal/booklet"
 	"github.com/gumptionthomas/boulevard/internal/boulevard"
 	"github.com/gumptionthomas/boulevard/internal/store"
 	"github.com/gumptionthomas/boulevard/internal/tokens"
+	"github.com/gumptionthomas/boulevard/internal/version"
 )
 
 // tokenRow is one card as the page shows it.
@@ -290,4 +292,82 @@ func (s *Server) handleStewardRotate(w http.ResponseWriter, r *http.Request) {
 
 	noStore(w)
 	http.Redirect(w, r, withOK(stewardPath(lib)+"tokens", "rotated"), http.StatusSeeOther)
+}
+
+// bookletTokensMsg is the refusal shown when the library does not hold a
+// clean twelve-card booklet to print — a rotation half-applied, or a row
+// deleted out from under it.
+const bookletTokensMsg = "This booklet is incomplete. Rotate to mint a fresh twelve."
+
+// handleStewardBookletPDF renders the current booklet and sends it.
+//
+// The twelve cards are the highest-numbered booklet the library holds:
+// rotation makes period_index monotonic, and BuildPlan requires exactly
+// twelve tokens. Reprinting an older booklet is not offered — its cards are
+// either in the door already or discarded.
+//
+// This response carries every card's secret across the network, and serve
+// terminates no TLS. The page linking here says so; withholding the
+// capability would take away the thing this milestone exists to provide,
+// and the steward key already crosses the same wire on every request.
+//
+// The work is bounded by design, which matters because SetMaxOpenConns(1)
+// serialises every request through one connection: a booklet is always
+// twelve cards, never more.
+func (s *Server) handleStewardBookletPDF(w http.ResponseWriter, r *http.Request) {
+	lib, _, ok := s.requireSteward(w, r)
+	if !ok {
+		return
+	}
+
+	all, err := s.store.TokensForLibrary(r.Context(), lib.ID)
+	if err != nil {
+		noStore(w)
+		http.Error(w, "database unavailable", http.StatusInternalServerError)
+		return
+	}
+
+	maxIndex := 0
+	for _, tok := range all {
+		if tok.PeriodIndex > maxIndex {
+			maxIndex = tok.PeriodIndex
+		}
+	}
+	start := ((maxIndex-1)/tokens.PeriodCount)*tokens.PeriodCount + 1
+
+	toks := make([]boulevard.Token, 0, tokens.PeriodCount)
+	for _, tok := range all {
+		if tok.PeriodIndex >= start {
+			toks = append(toks, tok)
+		}
+	}
+	if len(toks) != tokens.PeriodCount {
+		s.renderStewardTokens(w, r, lib, http.StatusConflict, "", bookletTokensMsg)
+		return
+	}
+
+	plan, err := booklet.BuildPlan(booklet.Input{
+		Library:   lib,
+		Tokens:    toks,
+		SourceURL: version.RepoURL,
+		BuildLine: "boulevard " + version.Version + " (" + version.Commit + ")",
+	})
+	if err != nil {
+		noStore(w)
+		http.Error(w, "cannot build the booklet", http.StatusInternalServerError)
+		return
+	}
+
+	pdf, err := booklet.Renderer{CreationDate: s.now()}.Render(plan)
+	if err != nil {
+		noStore(w)
+		http.Error(w, "cannot render the booklet", http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/pdf")
+	w.Header().Set("Content-Disposition", `attachment; filename="`+lib.Slug+`-booklet.pdf"`)
+	noStore(w)
+	w.WriteHeader(http.StatusOK)
+	w.Write(pdf)
 }

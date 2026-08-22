@@ -33,6 +33,14 @@
       {{end}}
     </div>
   {{end}}
+  <p class="err">
+    This download holds every card's secret — the shelf's write credential.
+    This connection is not encrypted, so anyone on this network can read it.
+  </p>
+  <a class="btn" href="{{.StewardURL}}booklet.pdf">Download the booklet</a>
+  <form method="post" action="{{.StewardURL}}tokens/rotate">
+    <button class="linkish" type="submit">Start a new booklet</button>
+  </form>
   <a class="btn" href="{{.StewardURL}}">Back to the hub</a>
 </main>
 {{end}}
