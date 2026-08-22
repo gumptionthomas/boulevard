@@ -13,6 +13,7 @@ import (
 
 	"github.com/gumptionthomas/boulevard/internal/boulevard"
 	"github.com/gumptionthomas/boulevard/internal/store"
+	"github.com/gumptionthomas/boulevard/internal/tokens"
 )
 
 func TestConfirmAcceptsYes(t *testing.T) {
@@ -482,6 +483,117 @@ func TestRunBookletWritesOwnerOnlyFiles(t *testing.T) {
 		if got := info.Mode().Perm(); got != 0o600 {
 			t.Errorf("%s mode = %#o, want %#o; it carries token secrets", filepath.Base(path), got, 0o600)
 		}
+	}
+}
+
+// --rotate mints a new booklet and leaves the card in the door alone.
+func TestBookletRotateKeepsTheActiveCard(t *testing.T) {
+	ctx := context.Background()
+	path, s, libs := cliStore(t, "fairview")
+	lib := libs[0]
+	seedTokens(t, s, lib)
+	if err := s.ForceActivateToken(ctx, lib.ID, 1, boulevard.NewDate(2026, time.August, 20)); err != nil {
+		t.Fatal(err)
+	}
+	before, err := s.TokensForLibrary(ctx, lib.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var activeSecret string
+	for _, tok := range before {
+		if tok.State == boulevard.TokenActive {
+			activeSecret = tok.Secret
+		}
+	}
+
+	out := filepath.Join(t.TempDir(), "booklet.pdf")
+	if code := runBooklet([]string{
+		"--db", path, "--slug", "fairview", "--rotate", "--out", out,
+		"--yes", "--skip-dns",
+	}); code != exitOK {
+		t.Fatalf("booklet --rotate exit = %d, want %d", code, exitOK)
+	}
+
+	after, err := s.TokensForLibrary(ctx, lib.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(after) != tokens.PeriodCount+1 {
+		t.Fatalf("%d tokens after rotate, want %d", len(after), tokens.PeriodCount+1)
+	}
+	kept, fresh := false, 0
+	for _, tok := range after {
+		if tok.Secret == activeSecret && tok.State == boulevard.TokenActive {
+			kept = true
+		}
+		if tok.PeriodIndex >= 13 && tok.PeriodIndex <= 24 {
+			fresh++
+		}
+	}
+	if !kept {
+		t.Error("the card in the door did not survive --rotate")
+	}
+	if fresh != tokens.PeriodCount {
+		t.Errorf("%d cards at 13..24, want %d", fresh, tokens.PeriodCount)
+	}
+	if _, err := os.Stat(out); err != nil {
+		t.Errorf("no PDF written: %v", err)
+	}
+}
+
+func TestBookletRotateRefusesWithoutAnExistingLibrary(t *testing.T) {
+	path, _, _ := cliStore(t)
+	out := filepath.Join(t.TempDir(), "booklet.pdf")
+	code := runBooklet([]string{
+		"--db", path, "--slug", "nowhere", "--rotate", "--out", out,
+		"--yes", "--skip-dns",
+	})
+	if code == exitOK {
+		t.Error("--rotate created a library instead of refusing")
+	}
+	if _, err := os.Stat(out); err == nil {
+		t.Error("--rotate wrote a PDF for a library that does not exist")
+	}
+}
+
+// The controller ruling for --rotate: it takes name, location and base URL
+// from the stored library rather than from flags, and refuses outright if
+// any of the three is passed rather than silently ignoring it — silently
+// ignoring --base-url would let a steward believe they had just corrected a
+// typo on the one artifact (the mounted sign) that a rerun cannot fix.
+func TestBookletRotateRefusesNameLocationOrBaseURL(t *testing.T) {
+	path, s, libs := cliStore(t, "fairview")
+	seedTokens(t, s, libs[0])
+
+	cases := []struct {
+		flag, value, wantWord string
+	}{
+		{"--name", "New Name", "name"},
+		{"--location", "New Location", "location"},
+		{"--base-url", "https://new.example.org", "base URL"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.wantWord, func(t *testing.T) {
+			out := filepath.Join(t.TempDir(), "booklet.pdf")
+			var code int
+			stderr := captureStderr(t, func() {
+				code = runBooklet([]string{
+					"--db", path, "--slug", "fairview", "--rotate",
+					tc.flag, tc.value, "--out", out,
+					"--yes", "--skip-dns",
+				})
+			})
+			if code != exitUsage {
+				t.Errorf("exit = %d, want %d", code, exitUsage)
+			}
+			want := "it cannot change its " + tc.wantWord + "."
+			if !strings.Contains(stderr, want) {
+				t.Errorf("stderr = %q, want it to contain %q", stderr, want)
+			}
+			if _, err := os.Stat(out); err == nil {
+				t.Error("a refused --rotate wrote a PDF")
+			}
+		})
 	}
 }
 
