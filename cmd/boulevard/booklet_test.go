@@ -597,6 +597,34 @@ func TestBookletRotateRefusesNameLocationOrBaseURL(t *testing.T) {
 	}
 }
 
+// The --slug guard was added after review flagged it as an untested
+// branch: without it, --rotate with no --slug still refuses safely (the
+// empty slug simply resolves to no library), but the message read
+// `no library "" to rotate`, which names nothing useful to the steward.
+// This states directly what --rotate needs.
+func TestBookletRotateRequiresSlug(t *testing.T) {
+	path, s, libs := cliStore(t, "fairview")
+	seedTokens(t, s, libs[0])
+
+	out := filepath.Join(t.TempDir(), "booklet.pdf")
+	var code int
+	stderr := captureStderr(t, func() {
+		code = runBooklet([]string{
+			"--db", path, "--rotate", "--out", out,
+			"--yes", "--skip-dns",
+		})
+	})
+	if code != exitUsage {
+		t.Errorf("exit = %d, want %d", code, exitUsage)
+	}
+	if !strings.Contains(stderr, "--rotate requires --slug") {
+		t.Errorf("stderr = %q, want it to name the missing --slug", stderr)
+	}
+	if _, err := os.Stat(out); err == nil {
+		t.Error("--rotate with no --slug wrote a PDF")
+	}
+}
+
 // captureStdout collects what runBooklet prints. The command writes to
 // os.Stdout directly — what a steward sees is part of its contract, so the
 // tests read the same stream a steward does.
