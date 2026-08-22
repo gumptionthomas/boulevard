@@ -180,6 +180,72 @@ func TestRotateFromTheDeskKeepsTheActiveCard(t *testing.T) {
 	}
 }
 
+// ExtendToken only ever succeeds on the active card; every pending card in
+// a fresh booklet is a card that has never been put in the door.
+func TestExtendRefusalNamesTheState(t *testing.T) {
+	st, lib, key := stewardServer(t)
+	seedWebTokens(t, st, lib)
+	h := New(st, func() time.Time {
+		return time.Date(2026, time.August, 20, 12, 0, 0, 0, time.UTC)
+	}).Handler()
+	c := loginAsSteward(t, h, lib, key)
+
+	rec := postForm(t, h, "/b/"+lib.Slug+"/steward/tokens/3/extend", nil, c)
+
+	if rec.Code != http.StatusConflict {
+		t.Fatalf("status = %d, want 409", rec.Code)
+	}
+	if !strings.Contains(rec.Body.String(), "card in the door") {
+		t.Errorf("the refusal does not name why the card can't be extended:\n%s", rec.Body.String())
+	}
+}
+
+// A second revoke of the same card must refuse rather than silently
+// succeed, and must say which state it found.
+func TestRevokeTwiceIsRefused(t *testing.T) {
+	st, lib, key := stewardServer(t)
+	seedWebTokens(t, st, lib)
+	h := New(st, func() time.Time {
+		return time.Date(2026, time.August, 20, 12, 0, 0, 0, time.UTC)
+	}).Handler()
+	c := loginAsSteward(t, h, lib, key)
+
+	postForm(t, h, "/b/"+lib.Slug+"/steward/tokens/1/revoke", nil, c)
+	rec := postForm(t, h, "/b/"+lib.Slug+"/steward/tokens/1/revoke", nil, c)
+
+	if rec.Code != http.StatusConflict {
+		t.Fatalf("status = %d, want 409", rec.Code)
+	}
+	if !strings.Contains(rec.Body.String(), "already revoked") {
+		t.Errorf("the refusal does not name the state it found:\n%s", rec.Body.String())
+	}
+}
+
+// A non-numeric period is attacker-controllable path input on an
+// authenticated admin surface, and must render the shared invalid-period
+// refusal rather than panic or 500.
+func TestNonNumericPeriodIsRefusedNotPanicked(t *testing.T) {
+	st, lib, key := stewardServer(t)
+	seedWebTokens(t, st, lib)
+	h := New(st, func() time.Time {
+		return time.Date(2026, time.August, 20, 12, 0, 0, 0, time.UTC)
+	}).Handler()
+	c := loginAsSteward(t, h, lib, key)
+
+	rec := postForm(t, h, "/b/"+lib.Slug+"/steward/tokens/September/revoke", nil, c)
+
+	if rec.Code != http.StatusNotFound {
+		t.Fatalf("status = %d, want 404", rec.Code)
+	}
+	// html/template escapes the apostrophe in invalidPeriodMsg (' -> &#39;),
+	// so this checks for the message's substance rather than its exact
+	// bytes — the point is that a junk path segment produces this rendered
+	// refusal, not a panic or a 500.
+	if !strings.Contains(rec.Body.String(), "That card number") {
+		t.Errorf("body does not carry the invalid-period message:\n%s", rec.Body.String())
+	}
+}
+
 // A GET at a POST-only route is a byte-identical 404, never a 405.
 func TestTokenMutationsAre404ToAGET(t *testing.T) {
 	st, lib, _ := stewardServer(t)
