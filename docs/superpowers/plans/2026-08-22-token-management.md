@@ -864,6 +864,8 @@ package store
 
 import (
 	"context"
+	"crypto/rand"
+	"os"
 	"path/filepath"
 	"testing"
 	"time"
@@ -1956,8 +1958,9 @@ func TestRevokeFromTheDeskStopsTheCardScanning(t *testing.T) {
 	}).Handler()
 	c := loginAsSteward(t, h, lib, key)
 
-	if rec := get(t, h, "/s/"+toks[0].Secret); rec.Code != http.StatusSeeOther {
-		t.Fatalf("before revoke: scan status = %d, want a session", rec.Code)
+	// A successful scan is a 302 to the shelf, not a 303 — see scan.go.
+	if rec := get(t, h, "/s/"+toks[0].Secret); rec.Code != http.StatusFound {
+		t.Fatalf("before revoke: scan status = %d, want 302", rec.Code)
 	}
 	if rec := postForm(t, h, "/b/"+lib.Slug+"/steward/tokens/1/revoke", nil, c); rec.Code != http.StatusSeeOther {
 		t.Fatalf("revoke status = %d, want 303", rec.Code)
