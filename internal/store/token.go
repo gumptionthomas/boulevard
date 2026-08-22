@@ -191,3 +191,144 @@ func (s *Store) RecordScan(ctx context.Context, id boulevard.LibraryID, tok boul
 	}
 	return nil
 }
+
+// ForceActivateToken promotes a pending card, for the steward who swapped
+// the card early (DESIGN.md §4).
+//
+// It moves valid_from to today, and that is the whole point rather than a
+// side effect. tokens.Validate reads state only for "revoked"; everything
+// else is the date window. Setting state = active on a card whose period
+// has not started leaves it answering NotYet — the command would report
+// success and change nothing a scanner can see. Inside the 7-day grace the
+// command is redundant anyway, because the card already scans, so the only
+// case that reaches here is one where a date has to move.
+//
+// valid_until is deliberately not moved: the card ends when it was always
+// going to end. The printed card will now disagree with the database, which
+// is accepted — the steward has physically put that card in the door, and
+// the month name is how they identify it.
+func (s *Store) ForceActivateToken(ctx context.Context, id boulevard.LibraryID, periodIndex int, today boulevard.Date) error {
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("begin force-activate: %w", err)
+	}
+	defer tx.Rollback()
+
+	var state string
+	err = tx.QueryRowContext(ctx,
+		`SELECT state FROM tokens WHERE library_id = ? AND period_index = ?`,
+		string(id), periodIndex).Scan(&state)
+	if errors.Is(err, sql.ErrNoRows) {
+		return ErrNotFound
+	}
+	if err != nil {
+		return fmt.Errorf("read token for period %d: %w", periodIndex, err)
+	}
+	if boulevard.TokenState(state) != boulevard.TokenPending {
+		return fmt.Errorf("period %d is %s: %w", periodIndex, state, ErrNotPending)
+	}
+
+	if _, err := tx.ExecContext(ctx,
+		`UPDATE tokens SET state = ? WHERE library_id = ? AND state = ?`,
+		string(boulevard.TokenExpired), string(id), string(boulevard.TokenActive)); err != nil {
+		return fmt.Errorf("expire the previous active token: %w", err)
+	}
+	if _, err := tx.ExecContext(ctx,
+		`UPDATE tokens SET state = ?, valid_from = ? WHERE library_id = ? AND period_index = ?`,
+		string(boulevard.TokenActive), today.String(), string(id), periodIndex); err != nil {
+		return fmt.Errorf("activate period %d: %w", periodIndex, err)
+	}
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("commit force-activate: %w", err)
+	}
+	return nil
+}
+
+// ExtendToken pushes the active card's end date to the last day of the
+// month after the one it currently ends in, and returns that date so the
+// caller can name it. For the steward whose booklet is lost and whose
+// replacement is not printed yet (DESIGN.md §4).
+//
+// Later periods are deliberately untouched. Cascading the shift would keep
+// exactly one card valid at a time but would make every unswapped printed
+// card disagree with the database — the card reading "September" would
+// carry October's period. Two cards valid at once is the smaller problem,
+// and one this design already accepts: the 7-day grace on both ends means
+// adjacent cards overlap by fourteen days regardless.
+func (s *Store) ExtendToken(ctx context.Context, id boulevard.LibraryID, periodIndex int) (boulevard.Date, error) {
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return boulevard.Date{}, fmt.Errorf("begin extend: %w", err)
+	}
+	defer tx.Rollback()
+
+	var state, until string
+	err = tx.QueryRowContext(ctx,
+		`SELECT state, valid_until FROM tokens WHERE library_id = ? AND period_index = ?`,
+		string(id), periodIndex).Scan(&state, &until)
+	if errors.Is(err, sql.ErrNoRows) {
+		return boulevard.Date{}, ErrNotFound
+	}
+	if err != nil {
+		return boulevard.Date{}, fmt.Errorf("read token for period %d: %w", periodIndex, err)
+	}
+	if boulevard.TokenState(state) != boulevard.TokenActive {
+		return boulevard.Date{}, fmt.Errorf("period %d is %s: %w", periodIndex, state, ErrNotActive)
+	}
+
+	cur, err := boulevard.ParseDate(until)
+	if err != nil {
+		return boulevard.Date{}, fmt.Errorf("parse valid_until %q: %w", until, err)
+	}
+	next := cur.NextMonth().LastOfMonth()
+
+	if _, err := tx.ExecContext(ctx,
+		`UPDATE tokens SET valid_until = ? WHERE library_id = ? AND period_index = ?`,
+		next.String(), string(id), periodIndex); err != nil {
+		return boulevard.Date{}, fmt.Errorf("extend period %d: %w", periodIndex, err)
+	}
+	if err := tx.Commit(); err != nil {
+		return boulevard.Date{}, fmt.Errorf("commit extend: %w", err)
+	}
+	return next, nil
+}
+
+// RevokeToken burns one card's secret, for a sheet that was stolen or
+// photographed (DESIGN.md §4). "revoked" is the one state tokens.Validate
+// reads, and §4 requires a revoked secret to produce a response
+// byte-identical to an unknown one — already true, and pinned by
+// TestScanRevokedIsIndistinguishableFromUnknown.
+//
+// There is no un-revoke. The way forward is force-activating the next card
+// or rotating.
+func (s *Store) RevokeToken(ctx context.Context, id boulevard.LibraryID, periodIndex int) error {
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("begin revoke: %w", err)
+	}
+	defer tx.Rollback()
+
+	var state string
+	err = tx.QueryRowContext(ctx,
+		`SELECT state FROM tokens WHERE library_id = ? AND period_index = ?`,
+		string(id), periodIndex).Scan(&state)
+	if errors.Is(err, sql.ErrNoRows) {
+		return ErrNotFound
+	}
+	if err != nil {
+		return fmt.Errorf("read token for period %d: %w", periodIndex, err)
+	}
+	if boulevard.TokenState(state) == boulevard.TokenRevoked {
+		return ErrAlreadyRevoked
+	}
+
+	if _, err := tx.ExecContext(ctx,
+		`UPDATE tokens SET state = ? WHERE library_id = ? AND period_index = ?`,
+		string(boulevard.TokenRevoked), string(id), periodIndex); err != nil {
+		return fmt.Errorf("revoke period %d: %w", periodIndex, err)
+	}
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("commit revoke: %w", err)
+	}
+	return nil
+}
