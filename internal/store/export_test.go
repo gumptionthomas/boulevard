@@ -88,6 +88,12 @@ func TestExportRoundTrip(t *testing.T) {
 // would hand working credentials to whoever holds the file; copying
 // session_takes would move exactly the durable "who took what" record that
 // table's swept-with-the-session design exists to avoid being.
+//
+// Each of the three tables is asserted non-empty in the *source* before the
+// export runs, and only then asserted empty in the export. Without the
+// source-side assertion, a fixture that silently failed to populate one of
+// these tables would make the "empty in the export" assertion trivially
+// true — passing regardless of whether CopyLibraryTo actually excludes it.
 func TestExportLeavesEverySessionTableEmpty(t *testing.T) {
 	ctx, s := context.Background(), openTemp(t)
 	lib, toks := seededLibrary(t, s)
@@ -106,6 +112,19 @@ func TestExportLeavesEverySessionTableEmpty(t *testing.T) {
 	if err := s.CreateSession(ctx, sess); err != nil {
 		t.Fatalf("CreateSession: %v", err)
 	}
+
+	// A real take, so session_takes has a row CopyLibraryTo could wrongly
+	// carry across. Shelve an item first — TakeItem only works on state
+	// 'shelved' — the same CreateItem + ApproveItem shape as the round-trip
+	// test above.
+	taken := insertExportItem(t, s, lib, "up for grabs", now)
+	if _, err := s.ApproveItem(ctx, lib.ID, taken, now); err != nil {
+		t.Fatalf("ApproveItem: %v", err)
+	}
+	if err := s.TakeItem(ctx, lib.ID, sess.ID, taken, now, 3); err != nil {
+		t.Fatalf("TakeItem: %v", err)
+	}
+
 	if err := s.SetStewardKeyHash(ctx, lib.ID, "deadbeef"); err != nil {
 		t.Fatalf("SetStewardKeyHash: %v", err)
 	}
@@ -121,6 +140,15 @@ func TestExportLeavesEverySessionTableEmpty(t *testing.T) {
 		t.Fatalf("CreateStewardSession: %v", err)
 	}
 
+	// Sanity check the fixture itself: all three tables must actually hold
+	// a row in the source, or the "empty in the export" assertion below
+	// proves nothing.
+	for _, table := range []string{"sessions", "steward_sessions", "session_takes"} {
+		if n := countRows(t, s, table); n == 0 {
+			t.Fatalf("source %s has 0 rows before export; fixture did not create one", table)
+		}
+	}
+
 	out := filepath.Join(t.TempDir(), "fairview.db")
 	if err := s.CopyLibraryTo(ctx, lib.ID, out); err != nil {
 		t.Fatalf("CopyLibraryTo: %v", err)
@@ -132,11 +160,7 @@ func TestExportLeavesEverySessionTableEmpty(t *testing.T) {
 	t.Cleanup(func() { dst.Close() })
 
 	for _, table := range []string{"sessions", "steward_sessions", "session_takes"} {
-		var n int
-		if err := dst.db.QueryRowContext(ctx, `SELECT count(*) FROM `+table).Scan(&n); err != nil {
-			t.Fatalf("count %s: %v", table, err)
-		}
-		if n != 0 {
+		if n := countRows(t, dst, table); n != 0 {
 			t.Errorf("%s has %d rows in the export, want 0", table, n)
 		}
 	}
@@ -150,6 +174,15 @@ func TestExportLeavesEverySessionTableEmpty(t *testing.T) {
 	if !set {
 		t.Error("steward key hash did not travel; the recipient is locked out of their own box")
 	}
+}
+
+func countRows(t *testing.T, s *Store, table string) int {
+	t.Helper()
+	var n int
+	if err := s.db.QueryRowContext(context.Background(), `SELECT count(*) FROM `+table).Scan(&n); err != nil {
+		t.Fatalf("count %s: %v", table, err)
+	}
+	return n
 }
 
 func insertExportItem(t *testing.T, s *Store, lib boulevard.Library, note string, left time.Time) string {
