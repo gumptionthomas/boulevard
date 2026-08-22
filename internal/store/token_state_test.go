@@ -2,6 +2,7 @@ package store
 
 import (
 	"context"
+	"crypto/rand"
 	"errors"
 	"testing"
 	"time"
@@ -171,4 +172,81 @@ func TestRevokeTwiceIsRefused(t *testing.T) {
 	if !errors.Is(err, ErrAlreadyRevoked) {
 		t.Errorf("err = %v, want ErrAlreadyRevoked", err)
 	}
+}
+
+// Rotation replaces the unprinted cards and leaves the one in the door
+// alone. The discarded pending cards' indices are not reused.
+func TestRotateReplacesPendingAndKeepsTheActiveCard(t *testing.T) {
+	ctx, s := context.Background(), openTemp(t)
+	lib, toks := seededLibrary(t, s)
+	if err := s.RecordScan(ctx, lib.ID, toks[0], time.Date(2026, time.August, 15, 12, 0, 0, 0, time.UTC)); err != nil {
+		t.Fatalf("RecordScan: %v", err)
+	}
+	active := stateOf(t, s, lib, 1)
+
+	existing, err := s.TokensForLibrary(ctx, lib.ID)
+	if err != nil {
+		t.Fatalf("TokensForLibrary: %v", err)
+	}
+	rot := tokens.PlanRotation(existing, boulevard.NewDate(2026, time.August, 20))
+	fresh := buildRotation(t, lib.ID, rot)
+
+	if err := s.RotatePendingTokens(ctx, lib.ID, fresh); err != nil {
+		t.Fatalf("RotatePendingTokens: %v", err)
+	}
+
+	after, err := s.TokensForLibrary(ctx, lib.ID)
+	if err != nil {
+		t.Fatalf("TokensForLibrary: %v", err)
+	}
+	if len(after) != tokens.PeriodCount+1 {
+		t.Fatalf("%d tokens after rotate, want %d (twelve new plus the active card)",
+			len(after), tokens.PeriodCount+1)
+	}
+
+	stillActive := stateOf(t, s, lib, 1)
+	if stillActive.Secret != active.Secret {
+		t.Error("the active card's secret changed; the card in the door must keep working")
+	}
+	if stillActive.State != boulevard.TokenActive {
+		t.Errorf("active card state = %q, want active", stillActive.State)
+	}
+
+	for i := 13; i <= 24; i++ {
+		tok := stateOf(t, s, lib, i)
+		if tok.State != boulevard.TokenPending {
+			t.Errorf("period %d state = %q, want pending", i, tok.State)
+		}
+	}
+	// The old pending cards are gone, indices and all.
+	for _, tok := range after {
+		if tok.PeriodIndex >= 2 && tok.PeriodIndex <= 12 {
+			t.Errorf("period %d survived the rotation", tok.PeriodIndex)
+		}
+	}
+}
+
+// buildRotation turns a Rotation into twelve insertable tokens, the way
+// every caller of RotatePendingTokens must: the store persists tokens, it
+// does not mint secrets (the same split InsertTokens already uses).
+func buildRotation(t *testing.T, libID boulevard.LibraryID, rot tokens.Rotation) []boulevard.Token {
+	t.Helper()
+	out := make([]boulevard.Token, 0, tokens.PeriodCount)
+	for _, p := range tokens.Periods(rot.Start, tokens.PeriodCount) {
+		secret, err := tokens.NewSecret(rand.Reader)
+		if err != nil {
+			t.Fatal(err)
+		}
+		id, err := boulevard.RandomBase32(rand.Reader, boulevard.EntropyBytes)
+		if err != nil {
+			t.Fatal(err)
+		}
+		out = append(out, boulevard.Token{
+			ID: id, LibraryID: libID, Secret: secret,
+			PeriodIndex: rot.StartIndex + p.Index - 1,
+			ValidFrom:   p.From, ValidUntil: p.Until,
+			State: boulevard.TokenPending,
+		})
+	}
+	return out
 }

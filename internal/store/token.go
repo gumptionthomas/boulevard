@@ -332,3 +332,53 @@ func (s *Store) RevokeToken(ctx context.Context, id boulevard.LibraryID, periodI
 	}
 	return nil
 }
+
+// RotatePendingTokens discards every unprinted card and inserts a fresh
+// booklet in one transaction. The caller mints the secrets and the ids and
+// computes the periods (tokens.PlanRotation plus tokens.Periods) — the same
+// split InsertTokens already uses, which keeps randomness injectable and
+// the period arithmetic unit-testable without a database.
+//
+// Only "pending" rows are deleted. A pending card has never granted a
+// session: tokens.Validate answers NotYet before its window opens, and the
+// first scan inside the window is what makes it active. So nothing in
+// `sessions` references the rows this removes, and the foreign key from
+// sessions.token_id has nothing to complain about.
+func (s *Store) RotatePendingTokens(ctx context.Context, id boulevard.LibraryID, toks []boulevard.Token) error {
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("begin rotate: %w", err)
+	}
+	defer tx.Rollback()
+
+	if _, err := tx.ExecContext(ctx,
+		`DELETE FROM tokens WHERE library_id = ? AND state = ?`,
+		string(id), string(boulevard.TokenPending)); err != nil {
+		return fmt.Errorf("discard pending tokens: %w", err)
+	}
+
+	stmt, err := tx.PrepareContext(ctx,
+		`INSERT INTO tokens (id, library_id, secret, period_index, valid_from, valid_until, state, first_seen_at, created_at)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, NULL, ?)`)
+	if err != nil {
+		return fmt.Errorf("prepare rotate insert: %w", err)
+	}
+	defer stmt.Close()
+
+	now := time.Now().UTC().Format(time.RFC3339)
+	for _, tok := range toks {
+		if tok.LibraryID != id {
+			return fmt.Errorf("token %d belongs to library %q, not %q", tok.PeriodIndex, tok.LibraryID, id)
+		}
+		if _, err := stmt.ExecContext(ctx,
+			tok.ID, string(id), tok.Secret, tok.PeriodIndex,
+			tok.ValidFrom.String(), tok.ValidUntil.String(), string(tok.State), now,
+		); err != nil {
+			return fmt.Errorf("insert rotated token for period %d: %w", tok.PeriodIndex, err)
+		}
+	}
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("commit rotate: %w", err)
+	}
+	return nil
+}
