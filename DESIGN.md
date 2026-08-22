@@ -144,7 +144,7 @@ tokens
 4. Outside the window but token is otherwise valid → a diagnostic page, distinct from failure, and **which one depends on the side**. Past the window plus grace: "this card is out of date, the steward needs to swap it", naming the day it stopped working. Before the window plus grace — a spare card from the booklet, or a card swapped in early — "this card isn't in use yet", naming the day it starts working, with the year when that day falls in another calendar year. Telling the holder of next July's card that it is out of date and stopped working on a date that has not happened sends a steward looking for a fault that does not exist.
 5. On first valid scan, set `first_seen_at`. Mark the token `active` **only if its period is later than the current active token's**, expiring the previous active token when it is. A token older than the current active one still grants a session and still records `first_seen_at`, but does not become active — otherwise a stray card found in a drawer could rewind the steward's sense of which card is in the door.
 
-**Steward overrides:** force-activate any pending card (swapped early), extend the current card (booklet lost, replacement not printed yet), revoke a card (sheet stolen or photographed).
+**Steward overrides:** force-activate any pending card (swapped early), extend the current card (booklet lost, replacement not printed yet), revoke a card (sheet stolen or photographed). Force-activate works by moving `valid_from` to today, not by writing `state` alone — validation above reads `state` only for `revoked`, so a card whose period has not started would still answer `NotYet` no matter what `state` says.
 
 **Reprinting.** Secrets are stored in plaintext so the booklet can be regenerated at any time. This is a deliberate trade: the threat model is a steward's own server, and if that server is compromised the shelf is already lost. The alternative — hashed secrets — makes a lost booklet unrecoverable, which is a far more likely event than server compromise. Reprint regenerates the PDF for all `pending` periods.
 
@@ -261,9 +261,11 @@ Before a key exists, **every steward route 404s**, including the login form — 
 - Approval queue
 - Shelf: remove, pin, unpin
 - Shed: re-shelve, release. Removing an item from the shelf sheds it rather than releasing it outright, recording `removed` as its own reason alongside `evicted`, `expired` and `taken` — a misfire is recoverable by re-shelving, and release stays the deliberate second step.
-- Tokens: current card, force-activate, extend, revoke, regenerate booklet, download PDF
+- Tokens: twelve rows, one per period — month, dates, state, whether it has been seen, the active card marked. Inline force-activate, extend, revoke, shown only where legal so the page never offers a tap that can only fail. Below the list: download the booklet PDF, and rotate onto a fresh twelve.
 - Settings: name, location, slots, max age, default copies, approval on/off
-- Export: entire library as one file
+- Export: the entire library as one runnable SQLite file, with a plaintext warning at the point of download
+
+Two decisions from the token-management design (`docs/superpowers/specs/2026-08-22-token-management-design.md`) are worth recording here because they shape the surfaces above. **Rotate leaves the active card alone.** It discards every `pending` token and mints twelve fresh ones, but the card currently in the door is untouched — the alternative would mean an action taken at a keyboard makes the box stop working until someone walks to it, and killing the live card on purpose stays available as its own act: revoke. **`period_index` is monotonic across booklets, not 1–12.** `UNIQUE (library_id, period_index)` means a rotation cannot reuse 1–12 while the active card still holds one of them, so the second booklet mints 13–24, the third 25–36; `booklet` and `card` are derived from `period_index` rather than stored, and a card's *printed* number is its position in the booklet being laid out, not its index.
 
 ---
 
@@ -296,6 +298,19 @@ Milestone 0 ships this command standalone, before any server exists:
 ```
 boulevard booklet --name "..." --location "..." --base-url https://... --out booklet.pdf
 ```
+
+Milestone 4b adds token management and export as CLI siblings of the web admin, the same way the approval queue and the shed stayed CLIs after 4a's desk shipped:
+
+```
+boulevard tokens         [--db boulevard.db] [--slug SLUG]
+boulevard force-activate [--db boulevard.db] [--slug SLUG] <card number>
+boulevard extend         [--db boulevard.db] [--slug SLUG] <card number>
+boulevard revoke         [--db boulevard.db] [--slug SLUG] <card number>
+boulevard export         [--db boulevard.db] [--slug SLUG] --out FILE [--force]
+boulevard booklet ... --rotate
+```
+
+`tokens`, `force-activate`, `extend` and `revoke` address cards by their printed number, not by id — a steward is holding a card that says "September," not a 26-character identifier. `--rotate` is `booklet`'s write path; the plain command already reprints an existing library's twelve cards unchanged, so `--rotate` is what mints a new twelve instead.
 
 Also ship a single-service `docker-compose.yml`.
 

@@ -11,8 +11,9 @@ Libraries stand.
 
 ## Status
 
-Milestone 4a — the steward's desk. The booklet generator, the HTTP server,
-items, taking, and now a web admin for the steward.
+Milestone 4b — token management and export. The booklet generator, the HTTP
+server, items, taking, the steward's desk, and now full control over the
+booklet's twelve cards and a way to take the whole library with you.
 
     boulevard booklet    --name "..." --location "..." --base-url https://...
     boulevard steward-key                  # mint the steward's admin credential
@@ -20,6 +21,12 @@ items, taking, and now a web admin for the steward.
     boulevard queue                        # what is waiting for approval
     boulevard approve <id>                 # put it on the shelf
     boulevard reject  <id>                 # release it
+    boulevard tokens                       # list the twelve cards
+    boulevard force-activate <card number> # put a pending card in the door early
+    boulevard extend <card number>         # give the active card another month
+    boulevard revoke <card number>         # burn a card's secret for good
+    boulevard booklet --rotate --slug SLUG # mint the next twelve cards
+    boulevard export --out fairview.db     # the library as one runnable file
 
 Someone at the box scans a card, leaves a link or a note, and it waits for
 a steward to approve it onto the shelf or reject it; anyone with a live
@@ -33,10 +40,24 @@ session on that library, which is the reset path for a lost, overheard, or
 captured key.
 
 Once a key exists, the steward's desk (login, hub, approval queue, shelf,
-shed, settings, pins) is reachable from a phone at `/b/{slug}/steward/`;
-`queue`/`approve`/`reject` and their shed-side siblings remain as CLIs for
-headless use. Token management (force-activate, extend, revoke, a new
-booklet) and export are not built yet — that is Milestone 4b.
+shed, settings, pins, tokens, export) is reachable from a phone at
+`/b/{slug}/steward/`; `queue`/`approve`/`reject` and their shed-side
+siblings remain as CLIs for headless use, joined now by `tokens`,
+`force-activate`, `extend`, `revoke`, `booklet --rotate` and `export`.
+Force-activate, extend and revoke address a card by the number printed on
+it, not by its id. A revoked card cannot be un-revoked; the way forward is
+force-activating the next card or rotating onto a fresh booklet.
+
+**Export writes the library out as one runnable SQLite file, not a format.**
+It is the same schema `boulevard.db` already uses, so `boulevard serve --db
+fairview.db` opens the export unchanged, with no import step. Only durable
+library state travels — items, tokens, the shelf, the shed, the steward key's
+hash — never a live presence session, a live steward session, or a take's
+link to the session that made it, so the file hands nobody a working login.
+Every card's secret does travel, so the export is written owner-readable
+only, same as `boulevard.db` and the booklet PDF, and both the CLI and the
+desk's export page warn plainly that the file is the shelf's write
+credential.
 
 `booklet` writes `boulevard.db` and a printable `boulevard-booklet.pdf`.
 `serve` puts the shelf on the web: scanning a card grants a 24-hour session,
@@ -79,6 +100,7 @@ To stamp version metadata:
 - `docs/shelf-acceptance.md` — Milestone 2 manual acceptance checklist
 - `docs/mechanics-acceptance.md` — Milestone 3 manual acceptance checklist
 - `docs/steward-acceptance.md` — Milestone 4a manual acceptance checklist
+- `docs/token-acceptance.md` — Milestone 4b manual acceptance checklist
 - `docs/superpowers/specs/` — per-milestone design documents
 
 ## License
