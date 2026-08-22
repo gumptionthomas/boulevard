@@ -168,6 +168,72 @@ func TestStewardRoutes404BeforeAKeyIsSet(t *testing.T) {
 	}
 }
 
+// The gate above is enforced inside requireSteward, but method matching
+// happens in the mux — before any handler runs. So a GET at a POST-only
+// steward route never reached the gate at all, and net/http answered it with
+// 405 plus an Allow header naming the method it wanted.
+//
+// Found by the Milestone 4a phone acceptance run. On a box with no steward
+// key — and for a slug that did not exist — that 405 confirmed the route was
+// real, making the whole admin route shape enumerable against any host
+// before a key had ever been minted. A fresh install must not advertise a
+// surface that is not armed.
+func TestPOSTOnlyRoutesAre404ToAGET(t *testing.T) {
+	st := testStore(t)
+	addLibrary(t, st, "fairview")
+	h := New(st, time.Now).Handler()
+
+	for _, path := range []string{
+		"/b/fairview/steward/i/ABC/approve",
+		"/b/fairview/steward/i/ABC/reject",
+		"/b/fairview/steward/i/ABC/remove",
+		"/b/fairview/steward/i/ABC/pin",
+		"/b/fairview/steward/i/ABC/unpin",
+		"/b/fairview/steward/i/ABC/reshelve",
+		"/b/fairview/steward/i/ABC/release",
+		"/b/fairview/steward/logout",
+		// The library need not exist: the mux matched on shape alone.
+		"/b/no-such-library/steward/i/ABC/approve",
+		// Public POST-only routes. Milder, same reasoning.
+		"/b/fairview/i/ABC/take",
+		"/b/fairview/i/ABC/untake",
+	} {
+		rec := get(t, h, path)
+		if rec.Code != http.StatusNotFound {
+			t.Errorf("GET %s = %d, want 404", path, rec.Code)
+		}
+		if allow := rec.Header().Get("Allow"); allow != "" {
+			t.Errorf("GET %s set Allow: %q, want it removed", path, allow)
+		}
+	}
+}
+
+// Hiding the 405 is only worth doing if what replaces it is
+// indistinguishable from a path that never existed — status, headers and
+// body. A distinctive 404 would leak the same fact more quietly.
+func TestHiddenMethodMismatchIsIdenticalToAnUnknownPath(t *testing.T) {
+	st := testStore(t)
+	addLibrary(t, st, "fairview")
+	h := New(st, time.Now).Handler()
+
+	hidden := get(t, h, "/b/fairview/steward/i/ABC/approve")
+	unknown := get(t, h, "/b/fairview/steward/i/ABC/nonesuch")
+
+	if hidden.Code != unknown.Code {
+		t.Errorf("status = %d, unknown path = %d", hidden.Code, unknown.Code)
+	}
+	if hidden.Body.String() != unknown.Body.String() {
+		t.Errorf("body = %q, unknown path = %q",
+			hidden.Body.String(), unknown.Body.String())
+	}
+	for _, h := range []string{"Content-Type", "Allow", "X-Content-Type-Options"} {
+		if hidden.Header().Get(h) != unknown.Header().Get(h) {
+			t.Errorf("%s = %q, unknown path = %q", h,
+				hidden.Header().Get(h), unknown.Header().Get(h))
+		}
+	}
+}
+
 // The 404-before-a-key gate is exercised by GET in the test above, but the
 // login POST is the one unauthenticated write endpoint on this server (spec
 // §2 names it explicitly) — it goes through the same stewardKeyed call, but
