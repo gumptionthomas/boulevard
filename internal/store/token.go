@@ -10,15 +10,15 @@ import (
 	"github.com/gumptionthomas/boulevard/internal/boulevard"
 )
 
-// InsertTokens writes a whole booklet's worth of tokens in one transaction.
-// A partial booklet is never useful, so the batch is all-or-nothing.
-func (s *Store) InsertTokens(ctx context.Context, id boulevard.LibraryID, toks []boulevard.Token) error {
-	tx, err := s.db.BeginTx(ctx, nil)
-	if err != nil {
-		return fmt.Errorf("begin token insert: %w", err)
-	}
-	defer tx.Rollback()
-
+// insertTokensTx writes a batch of tokens inside a transaction the caller
+// already opened. The tokens INSERT's column list must have exactly one
+// home: two copies of it in a table this milestone is actively changing is
+// how a column gets added to one and not the other, and that failure shows
+// up at runtime, not compile time. InsertTokens and RotatePendingTokens
+// share this loop; each keeps its own begin/commit bracket and its own
+// error wording around it, because "commit tokens" and "commit rotate" are
+// worth telling apart, but the SQL and the loop are not.
+func insertTokensTx(ctx context.Context, tx *sql.Tx, id boulevard.LibraryID, toks []boulevard.Token, now string) error {
 	stmt, err := tx.PrepareContext(ctx,
 		`INSERT INTO tokens (id, library_id, secret, period_index, valid_from, valid_until, state, first_seen_at, created_at)
 		 VALUES (?, ?, ?, ?, ?, ?, ?, NULL, ?)`)
@@ -27,7 +27,6 @@ func (s *Store) InsertTokens(ctx context.Context, id boulevard.LibraryID, toks [
 	}
 	defer stmt.Close()
 
-	now := time.Now().UTC().Format(time.RFC3339)
 	for _, tok := range toks {
 		if tok.LibraryID != id {
 			return fmt.Errorf("token %d belongs to library %q, not %q", tok.PeriodIndex, tok.LibraryID, id)
@@ -38,6 +37,21 @@ func (s *Store) InsertTokens(ctx context.Context, id boulevard.LibraryID, toks [
 		); err != nil {
 			return fmt.Errorf("insert token for period %d: %w", tok.PeriodIndex, err)
 		}
+	}
+	return nil
+}
+
+// InsertTokens writes a whole booklet's worth of tokens in one transaction.
+// A partial booklet is never useful, so the batch is all-or-nothing.
+func (s *Store) InsertTokens(ctx context.Context, id boulevard.LibraryID, toks []boulevard.Token) error {
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("begin token insert: %w", err)
+	}
+	defer tx.Rollback()
+
+	if err := insertTokensTx(ctx, tx, id, toks, time.Now().UTC().Format(time.RFC3339)); err != nil {
+		return err
 	}
 	if err := tx.Commit(); err != nil {
 		return fmt.Errorf("commit tokens: %w", err)
@@ -357,25 +371,8 @@ func (s *Store) RotatePendingTokens(ctx context.Context, id boulevard.LibraryID,
 		return fmt.Errorf("discard pending tokens: %w", err)
 	}
 
-	stmt, err := tx.PrepareContext(ctx,
-		`INSERT INTO tokens (id, library_id, secret, period_index, valid_from, valid_until, state, first_seen_at, created_at)
-		 VALUES (?, ?, ?, ?, ?, ?, ?, NULL, ?)`)
-	if err != nil {
-		return fmt.Errorf("prepare rotate insert: %w", err)
-	}
-	defer stmt.Close()
-
-	now := time.Now().UTC().Format(time.RFC3339)
-	for _, tok := range toks {
-		if tok.LibraryID != id {
-			return fmt.Errorf("token %d belongs to library %q, not %q", tok.PeriodIndex, tok.LibraryID, id)
-		}
-		if _, err := stmt.ExecContext(ctx,
-			tok.ID, string(id), tok.Secret, tok.PeriodIndex,
-			tok.ValidFrom.String(), tok.ValidUntil.String(), string(tok.State), now,
-		); err != nil {
-			return fmt.Errorf("insert rotated token for period %d: %w", tok.PeriodIndex, err)
-		}
+	if err := insertTokensTx(ctx, tx, id, toks, time.Now().UTC().Format(time.RFC3339)); err != nil {
+		return err
 	}
 	if err := tx.Commit(); err != nil {
 		return fmt.Errorf("commit rotate: %w", err)
