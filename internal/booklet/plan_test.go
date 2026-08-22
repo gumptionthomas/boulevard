@@ -198,3 +198,44 @@ func TestSignPayloadIsTheBareBaseURL(t *testing.T) {
 		t.Errorf("SignPayload = %q, want the bare base URL %q", got, in.Library.BaseURL)
 	}
 }
+
+// A rotated booklet carries period indices above 12 (Task 3 mints 13-24).
+// The number printed on a card is its position in the booklet being laid
+// out, so a second booklet still reads CARD 1 OF 12 through CARD 12 OF 12.
+func TestCardNumbersComeFromPositionNotPeriodIndex(t *testing.T) {
+	lib := boulevard.Library{Slug: "fairview", Name: "Fairview", BaseURL: "https://example.org"}
+	periods := tokens.Periods(boulevard.NewDate(2027, time.September, 1), tokens.PeriodCount)
+
+	toks := make([]boulevard.Token, 0, len(periods))
+	for _, p := range periods {
+		toks = append(toks, boulevard.Token{
+			Secret:      "SECRET",
+			PeriodIndex: p.Index + 12, // 13..24, as after one rotation
+			ValidFrom:   p.From,
+			ValidUntil:  p.Until,
+		})
+	}
+
+	plan, err := BuildPlan(Input{Library: lib, Tokens: toks})
+	if err != nil {
+		t.Fatalf("BuildPlan: %v", err)
+	}
+
+	var got []int
+	for _, sheet := range plan.Sheets {
+		for _, c := range sheet.Cards {
+			got = append(got, c.Index)
+			if c.Of != tokens.PeriodCount {
+				t.Errorf("Of = %d, want %d", c.Of, tokens.PeriodCount)
+			}
+		}
+	}
+	if len(got) != tokens.PeriodCount {
+		t.Fatalf("laid out %d cards, want %d", len(got), tokens.PeriodCount)
+	}
+	for i, n := range got {
+		if n != i+1 {
+			t.Errorf("card %d printed number %d, want %d", i, n, i+1)
+		}
+	}
+}
