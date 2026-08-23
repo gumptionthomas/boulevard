@@ -28,6 +28,18 @@ type Rotation struct {
 // The active card is not touched: an action taken at a keyboard must never
 // make the box stop working. Killing the live card stays a separate,
 // deliberate act (revoke).
+//
+// The start never falls before today, and that floor is not defensive
+// tidying — it is the neglected box DESIGN.md says to design for. The new
+// booklet follows the active card so no gap opens between the card in the
+// door and the next one, but a steward who last scanned in August and comes
+// back in March would otherwise be handed twelve cards beginning the
+// previous September, five of them already past their window plus grace on
+// the day they are printed, with nothing on the page saying so. §4 keeps
+// periods explicit and inspectable exactly so a steward who swaps the card
+// late is fixable rather than silently broken; minting dead cards for them
+// is the same failure in a new place. Flooring costs the overlap between
+// the lapsed card's end and today, which is already spent.
 func PlanRotation(existing []boulevard.Token, today boulevard.Date) Rotation {
 	maxIndex := 0
 	start := today
@@ -38,6 +50,9 @@ func PlanRotation(existing []boulevard.Token, today boulevard.Date) Rotation {
 		if tok.State == boulevard.TokenActive {
 			start = tok.ValidUntil.NextDay()
 		}
+	}
+	if start.Before(today) {
+		start = today
 	}
 	booklets := (maxIndex + PeriodCount - 1) / PeriodCount
 	return Rotation{StartIndex: booklets*PeriodCount + 1, Start: start}

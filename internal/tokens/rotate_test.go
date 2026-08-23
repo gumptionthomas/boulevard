@@ -64,3 +64,26 @@ func TestPlanRotationPastTheLastCard(t *testing.T) {
 		t.Errorf("Start = %s, want %s", got.Start, want)
 	}
 }
+
+// A neglected box: the card in the door lapsed months ago and the steward
+// has only now come back. Following the active card blindly would mint a
+// booklet starting last September, several of whose cards are already past
+// their window plus grace on the day they are printed — twelve cards cut
+// and carried, five of which never scan. The start is floored at today.
+func TestPlanRotationFloorsALapsedActiveCardAtToday(t *testing.T) {
+	toks := []boulevard.Token{
+		{PeriodIndex: 3, ValidFrom: boulevard.NewDate(2026, time.August, 1), ValidUntil: boulevard.NewDate(2026, time.August, 31), State: boulevard.TokenActive},
+	}
+	today := boulevard.NewDate(2027, time.March, 3)
+	got := PlanRotation(toks, today)
+	if !got.Start.Equal(today) {
+		t.Errorf("Start = %s, want %s", got.Start, today)
+	}
+
+	// Nothing the steward is about to print may already be dead.
+	for _, p := range Periods(got.Start, PeriodCount) {
+		if Validate(boulevard.Token{ValidFrom: p.From, ValidUntil: p.Until, State: boulevard.TokenPending}, today, GraceDays) == Expired {
+			t.Errorf("card %d (%s – %s) is already expired on the day it is printed", p.Index, p.From, p.Until)
+		}
+	}
+}
