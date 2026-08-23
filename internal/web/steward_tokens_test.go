@@ -247,10 +247,10 @@ func TestRotateConfirmationNamesWhatItDiscards(t *testing.T) {
 	}
 }
 
-// Spec §3: revoking the active card stops the box working until someone
-// walks to it with a different card, and the confirmation says so plainly.
-// Both surfaces owe the steward that sentence — a steward revoking a
-// photographed sheet from their kitchen has no other way to learn it.
+// Spec §3: revoking the active card stops anyone leaving or taking until
+// someone walks to it with a different card, and the confirmation says so
+// plainly. Both surfaces owe the steward that sentence — a steward revoking
+// a photographed sheet from their kitchen has no other way to learn it.
 func TestRevokingTheActiveCardSaysTheBoxGoesDark(t *testing.T) {
 	st, lib, key := stewardServer(t)
 	seedWebTokens(t, st, lib)
@@ -267,14 +267,14 @@ func TestRevokingTheActiveCardSaysTheBoxGoesDark(t *testing.T) {
 	if pending.Code != http.StatusOK {
 		t.Fatalf("status = %d, want 200", pending.Code)
 	}
-	if strings.Contains(pending.Body.String(), "stops the box working") {
-		t.Error("a pending card's confirmation claims the box stops working")
+	if strings.Contains(pending.Body.String(), "stops anyone leaving or taking") {
+		t.Error("a pending card's confirmation claims leaving or taking stops")
 	}
 
-	// The active card's is about the box.
+	// The active card's is about the shelf.
 	active := getWithCookie(t, h, "/b/"+lib.Slug+"/steward/tokens/1/revoke/confirm", c)
-	if !strings.Contains(active.Body.String(), "stops the box working") {
-		t.Errorf("the active card's confirmation does not say the box stops working:\n%s", active.Body.String())
+	if !strings.Contains(active.Body.String(), "stops anyone leaving or taking") {
+		t.Errorf("the active card's confirmation does not say leaving or taking stops:\n%s", active.Body.String())
 	}
 
 	rec := postForm(t, h, "/b/"+lib.Slug+"/steward/tokens/1/revoke", nil, c)
