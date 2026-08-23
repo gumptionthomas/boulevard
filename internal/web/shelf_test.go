@@ -263,16 +263,13 @@ func TestUnknownSlugIs404(t *testing.T) {
 
 // TestShelfAlwaysSaysWhatItIs is task 7: the shelf never explained what it
 // is, only what to do on it (§6's no-session rule text, the session
-// banner). A reader arriving at a stocked shelf from a shared link sees
-// notes and links and nothing that says these are things left for each
-// other — exactly as lost as at an empty one.
+// banner).
 //
-// Orientation is unconditional: session or not, empty or stocked.
-//
-// A stocked shelf shows notes and links but never says what the thing is,
-// so a reader arriving from a shared link is exactly as lost as at an empty
-// one. And a session does not mean the reader understands — scanning the
-// card is often how someone asks what this is.
+// Orientation is unconditional: session or not, empty or stocked. A stocked
+// shelf shows notes and links but never says what the thing is, so a reader
+// arriving from a shared link is exactly as lost as at an empty one. And a
+// session does not mean the reader understands — scanning the card is often
+// how someone asks what this is.
 func TestShelfAlwaysSaysWhatItIs(t *testing.T) {
 	const orientation = "Things people leave for each other."
 
