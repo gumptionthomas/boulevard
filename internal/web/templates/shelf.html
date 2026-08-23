@@ -11,6 +11,12 @@
 {{if .HasSession}}<div class="banner">You're at the shelf.<span>Until {{.Deadline}}.</span></div>{{end}}
 <main>
   <div class="site">{{.LibraryName}}</div>
+  {{/* Unconditional on purpose. A session does not mean the reader
+       understands what this is — scanning the take/leave card is often how
+       someone asks. And a stocked shelf explains itself no better than an
+       empty one: it shows notes and links, never the rule that you have to
+       be here to add to them. DESIGN.md §6 is amended to match. */}}
+  <p class="dim">Things people leave for each other.</p>
   {{if .Notice}}<p class="err">{{.Notice}}</p>{{end}}
   {{if .ItemViews}}
     {{range .ItemViews}}
