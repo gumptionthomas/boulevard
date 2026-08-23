@@ -45,7 +45,7 @@ const (
 	SignVerb      = "Scan to browse the shelf"
 	SignSubtitle  = "Anyone, anywhere, anytime. No code needed."
 	SignageLine   = "Take something. Leave something. Scan to leave."
-	SleeveWarning = "Mount the browse sign in a sleeve. Never laminate or engrave it — a hosting arrangement can end, and this sign must stay replaceable."
+	SleeveWarning = "Mount the shelf code in a sleeve. Never laminate or engrave it — a hosting arrangement can end, and it must stay replaceable."
 )
 
 type Rect struct{ X, Y, W, H float64 }

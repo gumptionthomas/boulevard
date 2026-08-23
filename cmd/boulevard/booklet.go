@@ -129,7 +129,7 @@ func runBooklet(args []string) int {
 	printIntent(os.Stdout, o, peek)
 
 	if !o.yes {
-		if !confirm(os.Stdin, os.Stdout, "The browse sign is meant to be permanent. Print?") {
+		if !confirm(os.Stdin, os.Stdout, "The shelf code is meant to be permanent. Print?") {
 			fmt.Println("Nothing written.")
 			return exitDeclined
 		}
