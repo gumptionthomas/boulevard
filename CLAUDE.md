@@ -7,12 +7,12 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 Milestones 0 through 4b are built: `boulevard booklet` prints the twelve-card booklet and the browse sign, `boulevard serve` runs the shelf, `boulevard queue` / `approve` / `reject` run the approval CLI, `boulevard shed` / `reshelve` / `release` run the shed, and `boulevard steward-key` mints the steward's credential. Scanning a card grants a 24-hour session; a session can leave an item, which waits `pending` until a steward approves it onto the shelf or rejects it, and can take an item, which is undoable until the session ends. Items shed by eviction, expiry, being taken to zero copies, or a steward's removal wait for a steward to re-shelve or release them. The steward's desk — login, hub, queue, shelf, shed, settings, pins, tokens, export — is reachable from a phone at `/b/{slug}/steward/`; the CLIs remain for headless use. `boulevard tokens` lists the booklet; `force-activate`, `extend` and `revoke` change one card's state or dates; `boulevard booklet --rotate` mints the next twelve; `boulevard export` (and the desk's export page) writes the library out as one runnable SQLite file. Milestone 5, polish, is next.
 
 ```
-cmd/boulevard/     main.go booklet.go serve.go queue.go shed.go stewardkey.go version.go
+cmd/boulevard/     main.go booklet.go serve.go queue.go shed.go stewardkey.go tokens.go export.go version.go
 internal/booklet/  the PDF: cards, cover, QR, geometry, layout
 internal/boulevard/ domain types only, stdlib-only: Date, Library, Item, Token, Session, StewardSession, ids
-internal/store/    SQLite: schema.sql, migrate.go, library.go, item.go, token.go, session.go, take.go, shed.go, sweep.go, steward.go
-internal/tokens/   pure: periods, secrets, Validate
-internal/web/      HTTP: server, routes, scan, shelf, leave, item, take, steward, steward_items, steward_settings, render, logging, templates/
+internal/store/    SQLite: schema.sql, migrate.go, library.go, item.go, token.go, session.go, take.go, shed.go, sweep.go, steward.go, export.go
+internal/tokens/   pure: periods, secrets, Validate, NewestBooklet (booklet selection), PlanRotation
+internal/web/      HTTP: server, routes, scan, shelf, leave, item, take, steward, steward_items, steward_settings, steward_tokens, steward_export, render, logging, templates/
 internal/version/  version, commit, repo URL for the AGPL footer
 ```
 
