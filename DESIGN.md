@@ -486,6 +486,8 @@ This is the smallest artifact that proves the whole model. If it feels awkward, 
 
 **Milestone 5 — polish.** The empty state, cold-cellular performance, one-handed outdoor usability, the about page.
 
+It also carries a **deliberate look-and-feel sweep**, mostly non-functional, called for after the Milestone 4b acceptance run: the bones are right, but **copy, ordering and type sizes** each need a pass. Named there or found since — a rotate confirmation whose most consequential sentence is the smallest type on the page; a destructive control sitting closer to a benign one than anything else on the shelf; the CLI and the desk labelling the same card differently ("Booklet 2 · Card 1" against "Booklet 2 · Card 1 of 12"); the tokens page having no empty state where the CLI has a good one; and `boulevard booklet`'s reprint still asking for a base URL that is printed on a mounted sign. This is a sweep, not a rewrite: nothing here changes what the software does.
+
 **Milestone 6 (v2) — the host layer.** Registry database, steward invites and accounts, neighborhood map, private moderation queue, quotas, `export-host` with redirect map. Reachable without refactoring only if §10's v1 obligation was honored throughout.
 
 ---

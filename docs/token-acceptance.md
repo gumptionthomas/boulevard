@@ -302,9 +302,14 @@ this run while reprinting.
 
 ## Still owed
 
-**Outdoors, in bad light, in gloves.** This run was on a phone but indoors,
-at a desk, in good light. The tap targets, the contrast and the confirmation
-copy have not been read in the conditions the design names.
+**Outdoors, and in gloves.** This run was on a phone at a desk — but under
+low purple LED, not good light, so the contrast and type sizes did get read
+in genuinely poor conditions. What it did not test is cold, gloves, or
+sunlight on a screen.
+
+It produced a verdict worth carrying into Milestone 5: the bones are right,
+and the work needed is a look-and-feel sweep — copy, ordering and type sizes
+— rather than anything structural. §13 records the specific items.
 
 **The seen-but-pending rotation path.** The foreign-key fix that lets
 rotation survive a pending card carrying a live session was not reachable in
