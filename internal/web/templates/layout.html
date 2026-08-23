@@ -93,6 +93,19 @@ a.linkish {
   display:inline-block; text-decoration:none; margin-top:12px;
   padding:12px 22px; border-radius:9px; font-size:16px; font-weight:600;
 }
+/* a.destructive is for an action that cannot be undone: rotating a booklet,
+   revoking a card. It is deliberately quieter than a.btn and deliberately
+   far from it.
+   The separation is the point, not the styling. This page is read
+   one-handed, outdoors, and a destructive control one tap-target below a
+   benign one is a mis-tap waiting to happen — "Start a new booklet…" used
+   to sit 12px under "Download the booklet". 44px is more space than
+   anything else on the page puts between two controls, which is what makes
+   it read as a different kind of thing rather than the next item in a list. */
+a.destructive {
+  display:block; margin-top:44px; text-decoration:none;
+  font-size:16px; font-weight:600; color:#8a2b20;
+}
 /* On the shelf, each item's own take/undo control sits inside a repeated
    .item card, not the page's one primary action — a full-width button per
    item, 26px apart, reads as page furniture rather than a per-item

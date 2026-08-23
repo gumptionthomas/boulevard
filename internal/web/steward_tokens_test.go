@@ -389,6 +389,43 @@ func TestTokenMutationsAre404ToAGET(t *testing.T) {
 	}
 }
 
+// The destructive control comes last and is not a mis-tap from a benign one.
+//
+// "Start a new booklet…" used to sit twelve pixels under the full-width
+// "Download the booklet" button, with "Back to the hub" after it — the two
+// most different actions on the page adjacent, on a surface specified for
+// one-handed outdoor use.
+func TestRotateControlComesLastAndApart(t *testing.T) {
+	st, lib, key := stewardServer(t)
+	seedWebTokens(t, st, lib)
+	h := New(st, func() time.Time {
+		return time.Date(2026, time.August, 20, 12, 0, 0, 0, time.UTC)
+	}).Handler()
+
+	body := getWithCookie(t, h, "/b/"+lib.Slug+"/steward/tokens",
+		loginAsSteward(t, h, lib, key)).Body.String()
+
+	download := strings.Index(body, "Download the booklet")
+	hub := strings.Index(body, "Back to the hub")
+	rotate := strings.Index(body, "Start a new booklet")
+	for name, i := range map[string]int{"download": download, "hub": hub, "rotate": rotate} {
+		if i < 0 {
+			t.Fatalf("%s control missing from the page", name)
+		}
+	}
+	if rotate < hub {
+		t.Error("the destructive control is above 'Back to the hub'; it must come last")
+	}
+
+	layout, err := templateFS.ReadFile("templates/layout.html")
+	if err != nil {
+		t.Fatalf("read layout: %v", err)
+	}
+	if !strings.Contains(string(layout), "a.destructive") {
+		t.Error("layout.html defines no a.destructive class")
+	}
+}
+
 // seedWebTokens inserts a full booklet directly through the store, the same
 // fixture style stewardServerWithItems uses for items — these tests have no
 // reason to drive the booklet command over HTTP.
