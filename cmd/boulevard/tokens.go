@@ -163,11 +163,30 @@ func runRevoke(args []string) int {
 	}
 	defer s.Close()
 
+	// Read the state before the write: revoking the card in the door costs
+	// something no other revoke does, and the confirmation owes the steward
+	// that sentence (spec §3). Afterwards the state is "revoked" and the
+	// difference is gone. A read failure is not fatal here — the revoke
+	// itself is what matters, and its own error handling is below.
+	wasActive := false
+	if all, err := s.TokensForLibrary(context.Background(), lib.ID); err == nil {
+		for _, tok := range all {
+			if tok.PeriodIndex == period && tok.State == boulevard.TokenActive {
+				wasActive = true
+			}
+		}
+	}
+
 	if err := s.RevokeToken(context.Background(), lib.ID, period); err != nil {
 		return tokenErrorExit(err, period)
 	}
 	fmt.Printf("\n  [%d]  %s — revoked. There is no un-revoke —\n"+
-		"  force-activate the next card or rotate the booklet.\n\n", period, cardLabel(period))
+		"  force-activate the next card or rotate the booklet.\n", period, cardLabel(period))
+	if wasActive {
+		fmt.Printf("\n  !  That was the card in the door. Nothing can be left or taken\n" +
+			"     at the box until someone puts a different card in it.\n")
+	}
+	fmt.Println()
 	return exitOK
 }
 

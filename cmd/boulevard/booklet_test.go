@@ -687,6 +687,35 @@ func TestBookletRotateRequiresSlug(t *testing.T) {
 	}
 }
 
+// The warning printed before the rotate prompt has to name the cost in the
+// case that reads as harmless: with nothing ever scanned there is no card
+// in the door to keep, so all twelve printed cards become waste paper and
+// the box cannot be written to until a new one is carried to it.
+func TestRotateWarningNamesTheCostWhenNothingIsInTheDoor(t *testing.T) {
+	var pending []boulevard.Token
+	for i := 1; i <= tokens.PeriodCount; i++ {
+		pending = append(pending, boulevard.Token{PeriodIndex: i, State: boulevard.TokenPending})
+	}
+
+	var dark strings.Builder
+	printRotateWarning(&dark, "fairview", pending)
+	for _, want := range []string{"all 12 cards are replaced", "left or taken"} {
+		if !strings.Contains(dark.String(), want) {
+			t.Errorf("warning does not say %q:\n%s", want, dark.String())
+		}
+	}
+
+	pending[0].State = boulevard.TokenActive
+	var lit strings.Builder
+	printRotateWarning(&lit, "fairview", pending)
+	if !strings.Contains(lit.String(), "keeps working") {
+		t.Errorf("warning does not say the card in the door survives:\n%s", lit.String())
+	}
+	if strings.Contains(lit.String(), "left or taken") {
+		t.Errorf("warning claims the box goes dark while a card is in the door:\n%s", lit.String())
+	}
+}
+
 // captureStdout collects what runBooklet prints. The command writes to
 // os.Stdout directly — what a steward sees is part of its contract, so the
 // tests read the same stream a steward does.

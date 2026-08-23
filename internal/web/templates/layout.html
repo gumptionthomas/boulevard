@@ -72,6 +72,16 @@ button[disabled] { opacity:.4; }
    its own outline style, which clears WCAG AA against both backgrounds in
    both colour schemes. */
 .linkish { background:transparent; border:2px solid #14130d; color:#14130d; }
+/* The two irreversible token actions — revoke and rotate — are links to a
+   confirmation page rather than submit buttons, so .linkish lands on an <a>
+   with no button rule underneath it to inherit sizing from. These are the
+   sizes button and .item form button would have given it; spelled out here
+   only because an anchor gets none of them, and the destructive control on
+   a page read one-handed outdoors must not be the smallest tap target. */
+a.linkish {
+  display:inline-block; text-decoration:none; margin-top:12px;
+  padding:12px 22px; border-radius:9px; font-size:15px; font-weight:600;
+}
 /* On the shelf, each item's own take/undo control sits inside a repeated
    .item card, not the page's one primary action — a full-width button per
    item, 26px apart, reads as page furniture rather than a per-item

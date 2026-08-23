@@ -180,6 +180,129 @@ func TestRotateFromTheDeskKeepsTheActiveCard(t *testing.T) {
 	}
 }
 
+// The desk's two irreversible operations must ask first. The CLI has always
+// blocked on a prompt for both; the page offering them as a bare tap was
+// the phone surface having the least friction for the acts that cannot be
+// undone.
+func TestTheDeskAsksBeforeRevokingOrRotating(t *testing.T) {
+	st, lib, key := stewardServer(t)
+	seedWebTokens(t, st, lib)
+	h := New(st, func() time.Time {
+		return time.Date(2026, time.August, 20, 12, 0, 0, 0, time.UTC)
+	}).Handler()
+	c := loginAsSteward(t, h, lib, key)
+
+	body := getWithCookie(t, h, "/b/"+lib.Slug+"/steward/tokens", c).Body.String()
+	for _, direct := range []string{
+		`action="/b/` + lib.Slug + `/steward/tokens/1/revoke"`,
+		`action="/b/` + lib.Slug + `/steward/tokens/rotate"`,
+	} {
+		if strings.Contains(body, direct) {
+			t.Errorf("the tokens page still posts %s without confirming", direct)
+		}
+	}
+	for _, want := range []string{
+		"/steward/tokens/1/revoke/confirm",
+		"/steward/tokens/rotate/confirm",
+	} {
+		if !strings.Contains(body, want) {
+			t.Errorf("the tokens page does not link to %s", want)
+		}
+	}
+}
+
+// The rotate confirmation names the count it is about to discard, and says
+// which card survives — the CLI's printRotateWarning, on the phone.
+func TestRotateConfirmationNamesWhatItDiscards(t *testing.T) {
+	st, lib, key := stewardServer(t)
+	seedWebTokens(t, st, lib)
+	h := New(st, func() time.Time {
+		return time.Date(2026, time.August, 20, 12, 0, 0, 0, time.UTC)
+	}).Handler()
+	c := loginAsSteward(t, h, lib, key)
+
+	// Nothing scanned yet: there is no card in the door, so all twelve
+	// printed cards are discarded and the box cannot be written to until a
+	// new booklet is carried to it. This is the case that reads as harmless
+	// and costs the most.
+	dark := getWithCookie(t, h, "/b/"+lib.Slug+"/steward/tokens/rotate/confirm", c)
+	if dark.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200", dark.Code)
+	}
+	for _, want := range []string{"12 cards are replaced", "nothing can be left or taken"} {
+		if !strings.Contains(dark.Body.String(), want) {
+			t.Errorf("the no-active-card confirmation does not say %q:\n%s", want, dark.Body.String())
+		}
+	}
+
+	// With a card in the door, eleven go and one stays.
+	if rec := postForm(t, h, "/b/"+lib.Slug+"/steward/tokens/1/force-activate", nil, c); rec.Code != http.StatusSeeOther {
+		t.Fatalf("setup force-activate: status = %d", rec.Code)
+	}
+	lit := getWithCookie(t, h, "/b/"+lib.Slug+"/steward/tokens/rotate/confirm", c)
+	for _, want := range []string{"keeps working", "11 unprinted cards"} {
+		if !strings.Contains(lit.Body.String(), want) {
+			t.Errorf("the confirmation does not say %q:\n%s", want, lit.Body.String())
+		}
+	}
+}
+
+// Spec §3: revoking the active card stops the box working until someone
+// walks to it with a different card, and the confirmation says so plainly.
+// Both surfaces owe the steward that sentence — a steward revoking a
+// photographed sheet from their kitchen has no other way to learn it.
+func TestRevokingTheActiveCardSaysTheBoxGoesDark(t *testing.T) {
+	st, lib, key := stewardServer(t)
+	seedWebTokens(t, st, lib)
+	h := New(st, func() time.Time {
+		return time.Date(2026, time.August, 20, 12, 0, 0, 0, time.UTC)
+	}).Handler()
+	c := loginAsSteward(t, h, lib, key)
+	if rec := postForm(t, h, "/b/"+lib.Slug+"/steward/tokens/1/force-activate", nil, c); rec.Code != http.StatusSeeOther {
+		t.Fatalf("setup force-activate: status = %d", rec.Code)
+	}
+
+	// A pending card's confirmation is about the card only.
+	pending := getWithCookie(t, h, "/b/"+lib.Slug+"/steward/tokens/3/revoke/confirm", c)
+	if pending.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200", pending.Code)
+	}
+	if strings.Contains(pending.Body.String(), "stops the box working") {
+		t.Error("a pending card's confirmation claims the box stops working")
+	}
+
+	// The active card's is about the box.
+	active := getWithCookie(t, h, "/b/"+lib.Slug+"/steward/tokens/1/revoke/confirm", c)
+	if !strings.Contains(active.Body.String(), "stops the box working") {
+		t.Errorf("the active card's confirmation does not say the box stops working:\n%s", active.Body.String())
+	}
+
+	rec := postForm(t, h, "/b/"+lib.Slug+"/steward/tokens/1/revoke", nil, c)
+	if got := rec.Header().Get("Location"); !strings.HasSuffix(got, "?ok=revoked-active") {
+		t.Fatalf("Location = %q, want ok=revoked-active", got)
+	}
+	follow := getWithCookie(t, h, "/b/"+lib.Slug+"/steward/tokens?ok=revoked-active", c)
+	if !strings.Contains(follow.Body.String(), okMessages["revoked-active"]) {
+		t.Errorf("the tokens page does not carry the revoked-active message:\n%s", follow.Body.String())
+	}
+}
+
+// A revoke that is not of the active card keeps the plainer confirmation:
+// that card stopped working, nothing else did.
+func TestRevokingAPendingCardKeepsThePlainConfirmation(t *testing.T) {
+	st, lib, key := stewardServer(t)
+	seedWebTokens(t, st, lib)
+	h := New(st, func() time.Time {
+		return time.Date(2026, time.August, 20, 12, 0, 0, 0, time.UTC)
+	}).Handler()
+	c := loginAsSteward(t, h, lib, key)
+
+	rec := postForm(t, h, "/b/"+lib.Slug+"/steward/tokens/4/revoke", nil, c)
+	if got := rec.Header().Get("Location"); !strings.HasSuffix(got, "?ok=revoked") {
+		t.Errorf("Location = %q, want ok=revoked", got)
+	}
+}
+
 // ExtendToken only ever succeeds on the active card; every pending card in
 // a fresh booklet is a card that has never been put in the door.
 func TestExtendRefusalNamesTheState(t *testing.T) {

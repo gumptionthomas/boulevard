@@ -49,11 +49,33 @@ func (s *Server) handleStewardTokens(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) renderStewardTokens(w http.ResponseWriter, r *http.Request, lib boulevard.Library, status int, notice, errMsg string) {
-	toks, err := s.store.TokensForLibrary(r.Context(), lib.ID)
+	rows, err := s.tokenRows(r, lib)
 	if err != nil {
 		noStore(w)
 		http.Error(w, "database unavailable", http.StatusInternalServerError)
 		return
+	}
+
+	s.render(w, status, "steward-tokens.html", stewardData{
+		Title:       "Tokens — " + lib.Name,
+		LibraryName: lib.Name,
+		ShelfURL:    shelfURL(lib),
+		StewardURL:  stewardPath(lib),
+		Library:     lib,
+		Notice:      notice,
+		Error:       errMsg,
+		TokenRows:   rows,
+		Now:         s.now(),
+	})
+}
+
+// tokenRows is the twelve rows both the tokens page and the confirmation
+// pages read from, so a card described one place cannot describe itself
+// differently in the other.
+func (s *Server) tokenRows(r *http.Request, lib boulevard.Library) ([]tokenRow, error) {
+	toks, err := s.store.TokensForLibrary(r.Context(), lib.ID)
+	if err != nil {
+		return nil, err
 	}
 
 	rows := make([]tokenRow, 0, len(toks))
@@ -80,18 +102,7 @@ func (s *Server) renderStewardTokens(w http.ResponseWriter, r *http.Request, lib
 			CanRevoke: tok.State != boulevard.TokenRevoked,
 		})
 	}
-
-	s.render(w, status, "steward-tokens.html", stewardData{
-		Title:       "Tokens — " + lib.Name,
-		LibraryName: lib.Name,
-		ShelfURL:    shelfURL(lib),
-		StewardURL:  stewardPath(lib),
-		Library:     lib,
-		Notice:      notice,
-		Error:       errMsg,
-		TokenRows:   rows,
-		Now:         s.now(),
-	})
+	return rows, nil
 }
 
 // invalidPeriodMsg covers two distinct failures with one wording, on
@@ -100,6 +111,11 @@ func (s *Server) renderStewardTokens(w http.ResponseWriter, r *http.Request, lib
 // box — "type this into the URL bar" is not a workflow this page offers,
 // so there is no reason to tell the two apart.
 const invalidPeriodMsg = "That card number isn't valid."
+
+// alreadyRevokedMsg is shared by the revoke confirmation and the revoke
+// itself: a card revoked in another tab between the two must read the same
+// either way.
+const alreadyRevokedMsg = "That card is already revoked."
 
 // periodFromPath parses {period} and re-renders the tokens page with the
 // shared invalid-period message on failure, so all four mutations handle a
@@ -207,9 +223,62 @@ func (s *Server) handleStewardExtend(w http.ResponseWriter, r *http.Request) {
 	http.Redirect(w, r, withOK(stewardPath(lib)+"tokens", "extended"), http.StatusSeeOther)
 }
 
+// handleStewardRevokeConfirm asks before burning a secret, because revoke
+// is irreversible and the desk is the surface a steward uses one-handed,
+// outdoors, on a phone. The CLI has always blocked on a prompt here; a bare
+// tap on a `linkish` button was the desk offering the same irreversible act
+// with less friction than the terminal, which was accidental rather than
+// decided.
+//
+// It is a page at its own path, not a GET on the mutation's path: every
+// steward mutation stays POST-only (see routes.go), and a GET that answered
+// on the mutation's URL would blur a rule worth keeping crisp.
+func (s *Server) handleStewardRevokeConfirm(w http.ResponseWriter, r *http.Request) {
+	lib, _, ok := s.requireSteward(w, r)
+	if !ok {
+		return
+	}
+	period, ok := s.periodFromPath(w, r, lib)
+	if !ok {
+		return
+	}
+	rows, err := s.tokenRows(r, lib)
+	if err != nil {
+		noStore(w)
+		http.Error(w, "database unavailable", http.StatusInternalServerError)
+		return
+	}
+	for i := range rows {
+		if rows[i].Period != period {
+			continue
+		}
+		if !rows[i].CanRevoke {
+			s.renderStewardTokens(w, r, lib, http.StatusConflict, "", alreadyRevokedMsg)
+			return
+		}
+		s.render(w, http.StatusOK, "steward-confirm-revoke.html", stewardData{
+			Title:       "Revoke a card — " + lib.Name,
+			LibraryName: lib.Name,
+			ShelfURL:    shelfURL(lib),
+			StewardURL:  stewardPath(lib),
+			Library:     lib,
+			ConfirmCard: &rows[i],
+			Now:         s.now(),
+		})
+		return
+	}
+	s.renderStewardTokens(w, r, lib, http.StatusNotFound, "", invalidPeriodMsg)
+}
+
 // handleStewardRevoke burns one card's secret, for a sheet that was stolen
 // or photographed (DESIGN.md §4). There is no un-revoke: the way forward
 // is force-activating the next card or rotating onto a new booklet.
+//
+// The card's state is read before the write, because the confirmation owes
+// the steward a different sentence depending on it. Revoking the card in
+// the door does not just retire a secret — it stops the box working until
+// someone walks to it with another card (spec §3), and a steward doing this
+// from their kitchen has no other way to learn that.
 func (s *Server) handleStewardRevoke(w http.ResponseWriter, r *http.Request) {
 	lib, _, ok := s.requireSteward(w, r)
 	if !ok {
@@ -220,13 +289,10 @@ func (s *Server) handleStewardRevoke(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	err := s.store.RevokeToken(r.Context(), lib.ID, period)
+	prior, err := s.stateOf(r, lib, period)
 	switch {
 	case errors.Is(err, store.ErrNotFound):
 		s.renderStewardTokens(w, r, lib, http.StatusNotFound, "", invalidPeriodMsg)
-		return
-	case errors.Is(err, store.ErrAlreadyRevoked):
-		s.renderStewardTokens(w, r, lib, http.StatusConflict, "", "That card is already revoked.")
 		return
 	case err != nil:
 		noStore(w)
@@ -234,8 +300,65 @@ func (s *Server) handleStewardRevoke(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	err = s.store.RevokeToken(r.Context(), lib.ID, period)
+	switch {
+	case errors.Is(err, store.ErrNotFound):
+		s.renderStewardTokens(w, r, lib, http.StatusNotFound, "", invalidPeriodMsg)
+		return
+	case errors.Is(err, store.ErrAlreadyRevoked):
+		s.renderStewardTokens(w, r, lib, http.StatusConflict, "", alreadyRevokedMsg)
+		return
+	case err != nil:
+		noStore(w)
+		http.Error(w, "database unavailable", http.StatusInternalServerError)
+		return
+	}
+
+	code := "revoked"
+	if prior == boulevard.TokenActive {
+		code = "revoked-active"
+	}
 	noStore(w)
-	http.Redirect(w, r, withOK(stewardPath(lib)+"tokens", "revoked"), http.StatusSeeOther)
+	http.Redirect(w, r, withOK(stewardPath(lib)+"tokens", code), http.StatusSeeOther)
+}
+
+// handleStewardRotateConfirm names what a rotation discards before it
+// happens, the way the CLI's printRotateWarning does.
+//
+// The count matters most in the case that reads as harmless: a library
+// nothing has scanned yet has no active card, so all twelve printed cards
+// are discarded in one tap and the box cannot be written to until a new
+// booklet is printed and carried to it. The page says so rather than
+// leaving the steward to discover it at the box.
+func (s *Server) handleStewardRotateConfirm(w http.ResponseWriter, r *http.Request) {
+	lib, _, ok := s.requireSteward(w, r)
+	if !ok {
+		return
+	}
+	rows, err := s.tokenRows(r, lib)
+	if err != nil {
+		noStore(w)
+		http.Error(w, "database unavailable", http.StatusInternalServerError)
+		return
+	}
+
+	data := stewardData{
+		Title:       "Start a new booklet — " + lib.Name,
+		LibraryName: lib.Name,
+		ShelfURL:    shelfURL(lib),
+		StewardURL:  stewardPath(lib),
+		Library:     lib,
+		Now:         s.now(),
+	}
+	for i := range rows {
+		switch rows[i].State {
+		case boulevard.TokenPending:
+			data.PendingCards++
+		case boulevard.TokenActive:
+			data.ActiveCard = &rows[i]
+		}
+	}
+	s.render(w, http.StatusOK, "steward-confirm-rotate.html", data)
 }
 
 // handleStewardRotate discards every unprinted card and mints a fresh

@@ -185,6 +185,38 @@ func TestRevokeRefusesTwice(t *testing.T) {
 	}
 }
 
+// Spec §3: revoking the active card stops the box working until someone
+// walks to it with a different card, and the confirmation says so plainly
+// rather than softening it. A steward revoking a photographed sheet from a
+// terminal has no other way to learn that the box has gone dark.
+func TestRevokingTheActiveCardSaysTheBoxGoesDark(t *testing.T) {
+	path, s, libs := cliStore(t, "fairview")
+	seedTokens(t, s, libs[0])
+	if code := runForceActivate([]string{"--db", path, "2"}); code != exitOK {
+		t.Fatalf("setup force-activate exit = %d, want %d", code, exitOK)
+	}
+
+	out := captureStdout(t, func() {
+		if code := runRevoke([]string{"--db", path, "2"}); code != exitOK {
+			t.Fatalf("revoke exit = %d, want %d", code, exitOK)
+		}
+	})
+	if !strings.Contains(out, "card in the door") || !strings.Contains(out, "left or taken") {
+		t.Errorf("revoking the active card does not say the box goes dark:\n%s", out)
+	}
+
+	// A card that was not in the door costs nothing beyond itself, and must
+	// not claim otherwise.
+	plain := captureStdout(t, func() {
+		if code := runRevoke([]string{"--db", path, "5"}); code != exitOK {
+			t.Fatalf("revoke exit = %d, want %d", code, exitOK)
+		}
+	})
+	if strings.Contains(plain, "left or taken") {
+		t.Errorf("revoking a pending card claims the box went dark:\n%s", plain)
+	}
+}
+
 func TestCardNumberMustBeANumber(t *testing.T) {
 	path, s, libs := cliStore(t, "fairview")
 	seedTokens(t, s, libs[0])

@@ -1,0 +1,29 @@
+{{define "steward-confirm-rotate.html"}}{{template "layout" .}}{{end}}
+{{define "body"}}
+<main>
+  <div class="site">{{.LibraryName}}</div>
+  <h1>Start a new booklet?</h1>
+  {{if .ActiveCard}}
+    <p>
+      The card in the door — {{.ActiveCard.Month}} {{.ActiveCard.Year}} — keeps working.
+      The {{.PendingCards}} unprinted cards are replaced, and their secrets are discarded.
+    </p>
+    <p class="err">
+      Those {{.PendingCards}} cards stop working the moment this is done. If any of them
+      are already cut and sitting in a drawer, throw them away.
+    </p>
+  {{else}}
+    <p class="err">
+      No card has been scanned yet, so there is nothing to keep: all
+      {{.PendingCards}} cards are replaced and their secrets discarded. Every card
+      already printed becomes waste paper, and nothing can be left or taken at the
+      box until you print the new booklet and carry a card to it.
+    </p>
+  {{end}}
+  <p>There is no un-rotate. A discarded secret cannot be brought back.</p>
+  <form method="post" action="{{.StewardURL}}tokens/rotate">
+    <button type="submit">Mint twelve new cards</button>
+  </form>
+  <a class="btn" href="{{.StewardURL}}tokens">Leave it alone</a>
+</main>
+{{end}}

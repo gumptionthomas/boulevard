@@ -57,6 +57,12 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("POST /b/{slug}/steward/tokens/{period}/extend", s.handleStewardExtend)
 	mux.HandleFunc("POST /b/{slug}/steward/tokens/{period}/revoke", s.handleStewardRevoke)
 	mux.HandleFunc("POST /b/{slug}/steward/tokens/rotate", s.handleStewardRotate)
+	// The two irreversible token operations ask first. These confirmation
+	// pages sit at their own paths rather than answering GET on the
+	// mutations above, so "every steward mutation is POST-only" stays
+	// literally true of every mutation URL.
+	mux.HandleFunc("GET /b/{slug}/steward/tokens/{period}/revoke/confirm", s.handleStewardRevokeConfirm)
+	mux.HandleFunc("GET /b/{slug}/steward/tokens/rotate/confirm", s.handleStewardRotateConfirm)
 	mux.HandleFunc("GET /b/{slug}/steward/booklet.pdf", s.handleStewardBookletPDF)
 	mux.HandleFunc("GET /b/{slug}/steward/export", s.handleStewardExport)
 	mux.HandleFunc("GET /b/{slug}/steward/export.db", s.handleStewardExportDownload)

@@ -1,0 +1,29 @@
+{{define "steward-confirm-revoke.html"}}{{template "layout" .}}{{end}}
+{{define "body"}}
+<main>
+  <div class="site">{{.LibraryName}}</div>
+  <h1>Revoke this card?</h1>
+  {{with .ConfirmCard}}
+    <p class="note">
+      {{.Month}} {{.Year}}
+      {{if .Active}}<span class="tag">in the door</span>{{end}}
+    </p>
+    <p class="src">
+      {{if gt .Booklet 1}}Booklet {{.Booklet}} · {{end}}Card {{.Card}} of 12 ·
+      {{.From}} – {{.Until}} · {{.State}}
+    </p>
+    {{if .Active}}
+      <p class="err">
+        This is the card in the door. Revoking it stops the box working:
+        nobody can leave or take anything until someone walks to it with a
+        different card.
+      </p>
+    {{end}}
+    <p>This card's secret is burned. There is no un-revoke — the way forward is to put another card in the door, or start a new booklet.</p>
+    <form method="post" action="{{$.StewardURL}}tokens/{{.Period}}/revoke">
+      <button type="submit">Revoke it</button>
+    </form>
+  {{end}}
+  <a class="btn" href="{{.StewardURL}}tokens">Leave it alone</a>
+</main>
+{{end}}

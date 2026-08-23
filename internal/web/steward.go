@@ -49,6 +49,15 @@ type stewardData struct {
 	Library   boulevard.Library
 	Errors    map[string]string
 
+	// ConfirmCard, ActiveCard and PendingCards feed the two confirmation
+	// pages, and are nil/zero everywhere else. They are structured fields
+	// rather than a rendered sentence for the same reason okMessages is a
+	// closed set: nothing a request carries may become prose on an
+	// authenticated admin page.
+	ConfirmCard  *tokenRow
+	ActiveCard   *tokenRow
+	PendingCards int
+
 	// Now is s.now(), carried onto the page so a queue/shelf/shed row can
 	// convert a stored-UTC timestamp into the display zone with
 	// `.In $.Now.Location` — never time.Local, so a test on an injected

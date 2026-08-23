@@ -284,8 +284,11 @@ func runBookletRotate(o bookletOpts) int {
 	// not alongside or after it.
 	printRotateWarning(os.Stdout, lib.Slug, existing)
 
+	// Not the create path's question. That one asks about the browse sign,
+	// which rotation does not touch; this decision is about discarding
+	// secrets, and the prompt has to ask about the thing being decided.
 	if !o.yes {
-		if !confirm(os.Stdin, os.Stdout, "The browse sign is meant to be permanent. Print?") {
+		if !confirm(os.Stdin, os.Stdout, "Discarded secrets cannot be brought back. Mint the new twelve?") {
 			fmt.Println("Nothing written.")
 			return exitDeclined
 		}
@@ -386,7 +389,13 @@ func printRotateWarning(w io.Writer, slug string, existing []boulevard.Token) {
 		fmt.Fprintf(w, "    The card currently in the door keeps working.\n"+
 			"    The %d unprinted cards are replaced and their secrets discarded.\n\n", pending)
 	} else {
-		fmt.Fprintf(w, "    Every card is new.\n\n")
+		// No card has ever been scanned, so there is nothing to keep — and
+		// this is the case that reads as harmless while costing the most:
+		// every card already printed becomes waste paper, and the box
+		// cannot be written to until a new one is carried to it.
+		fmt.Fprintf(w, "    Nothing has been scanned, so there is no card in the door to keep:\n"+
+			"    all %d cards are replaced and their secrets discarded. Nothing can be\n"+
+			"    left or taken at the box until a card from the new booklet is in it.\n\n", pending)
 	}
 }
 
