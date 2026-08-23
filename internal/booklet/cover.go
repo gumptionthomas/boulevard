@@ -22,7 +22,7 @@ func SignRect(cover Rect) Rect {
 // so the list can be reordered or added to without editing every string.
 var installSteps = []string{
 	"Cut the cards apart along the hairlines. Keep them in order.",
-	"Tape the current month's card inside the box door.",
+	"Tape the current month's card inside the shelf door.",
 	"On the first of each month, swap in the next card.",
 	"While you are there, look at the hinge, the sign, and the shelf.",
 	"Mount the browse sign where it can be read from the sidewalk.",

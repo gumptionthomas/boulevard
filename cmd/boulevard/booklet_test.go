@@ -712,7 +712,7 @@ func TestRotateWarningNamesTheCostWhenNothingIsInTheDoor(t *testing.T) {
 		t.Errorf("warning does not say the card in the door survives:\n%s", lit.String())
 	}
 	if strings.Contains(lit.String(), "left or taken") {
-		t.Errorf("warning claims the box goes dark while a card is in the door:\n%s", lit.String())
+		t.Errorf("warning claims the shelf goes dark while a card is in the door:\n%s", lit.String())
 	}
 }
 

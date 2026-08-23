@@ -44,7 +44,7 @@ var okMessages = map[string]string{
 	// costs something no other revoke does: nothing can be left or taken
 	// until someone walks to the box with a different card (spec §3). The
 	// confirmation says it plainly rather than softening it.
-	"revoked-active": "Revoked. Nothing can be left or taken at the box until you put a different card in the door.",
+	"revoked-active": "Revoked. Nothing can be left or taken until a different card is at the shelf.",
 	"rotated":        "A new booklet is ready. Print it before the card in the door runs out.",
 }
 

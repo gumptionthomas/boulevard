@@ -57,7 +57,7 @@ func (s *Server) render(w http.ResponseWriter, status int, name string, data any
 // noStore keeps a cookie-dependent page out of every cache.
 //
 // The shelf's body differs entirely depending on bl_session: with one it
-// carries "You're at the box" and a deadline, without one it carries the
+// carries "You're at the shelf" and a deadline, without one it carries the
 // scan-the-code explanation. This branch ships no TLS, so a steward putting
 // the box on the internet is pushed toward a reverse proxy or CDN — where a
 // shared cache holding either version and handing it to the wrong visitor is

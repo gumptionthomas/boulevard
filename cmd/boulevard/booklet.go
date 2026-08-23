@@ -395,7 +395,7 @@ func printRotateWarning(w io.Writer, slug string, existing []boulevard.Token) {
 		// cannot be written to until a new one is carried to it.
 		fmt.Fprintf(w, "    Nothing has been scanned, so there is no card in the door to keep:\n"+
 			"    all %d cards are replaced and their secrets discarded. Nothing can be\n"+
-			"    left or taken at the box until a card from the new booklet is in it.\n\n", pending)
+			"    left or taken until a card from the new booklet is at the shelf.\n\n", pending)
 	}
 }
 
@@ -488,7 +488,7 @@ func checkDNS(host string) error {
 func warnBaseURLChange(w io.Writer, from, to string) {
 	fmt.Fprintf(w, "\n  !  Base URL is changing from %s to %s.\n"+
 		"     Every card and the permanent browse sign will encode the new host.\n"+
-		"     The sign already mounted on the box becomes wrong.\n\n", from, to)
+		"     The shelf code already mounted becomes wrong.\n\n", from, to)
 }
 
 // confirm asks a yes/no question defaulting to no. The browse sign is meant
