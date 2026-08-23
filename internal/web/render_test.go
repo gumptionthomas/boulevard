@@ -169,6 +169,37 @@ func TestTemplatesAllParse(t *testing.T) {
 // passed whether or not the template referenced {{.LibraryName}}. Populating
 // LibraryName, Location and ShelfURL on every page — including the ones that
 // must not show them — is what makes the leak path actually exercised.
+// A sentence about an irreversible act is never sized as a field error.
+//
+// .err used to mean both "this field is wrong" and "you are about to
+// destroy twelve secrets" — two things sharing a colour and nothing else,
+// which is how the rotate confirmation's most consequential sentence ended
+// up at 13px on a surface read one-handed outdoors.
+func TestConsequenceSentencesUseTheConsequenceClass(t *testing.T) {
+	layout, err := templateFS.ReadFile("templates/layout.html")
+	if err != nil {
+		t.Fatalf("read layout: %v", err)
+	}
+	if !strings.Contains(string(layout), ".consequence") {
+		t.Error("layout.html defines no .consequence class")
+	}
+
+	for _, name := range []string{
+		"templates/steward-confirm-rotate.html",
+		"templates/steward-confirm-revoke.html",
+		"templates/steward-tokens.html",
+		"templates/steward-export.html",
+	} {
+		b, err := templateFS.ReadFile(name)
+		if err != nil {
+			t.Fatalf("read %s: %v", name, err)
+		}
+		if !strings.Contains(string(b), `class="consequence"`) {
+			t.Errorf(`%s has no class="consequence"; its warning is still sized as a field error`, name)
+		}
+	}
+}
+
 func TestRenderedPagesAreDistinct(t *testing.T) {
 	srv := New(nil, time.Now)
 
