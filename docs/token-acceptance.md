@@ -215,9 +215,10 @@ as `https://2b2t.net`, and the shelf derived its domain from it correctly.
 That change was made the same day, and this is the surface it was built for:
 typing `https://` on a phone keyboard, one-handed, outdoors.
 
-## Defect found: force-activate relabels the card
+## Defect found and fixed during the run: force-activate relabelled the card
 
-**Open. Not a check failure — no check asked for it.**
+**Fixed in `2fd2ae1`, re-verified from the phone on a clean box. Not a check
+failure — no check asked for it.**
 
 Four surfaces derive a card's month label from `ValidFrom`, and
 force-activate rewrites `ValidFrom` to today:
@@ -255,9 +256,37 @@ mislabels are permanent rows, not a transient view.
 force-activate, which never touches it, but breaks under extend, which moves
 it by design — confirmed in this run, where the active card went to 30
 November. Neither endpoint survives both operations, so the printed label has
-to be **stored at mint time**: an `ALTER TABLE ADD COLUMN` in the codebase's
-established migration style, set at insert and never modified, with the four
-surfaces above reading it instead of deriving one.
+to be **stored at mint time**.
+
+**What was done.** Migration 6 adds `tokens.printed_from`, set once at mint
+and never modified, with `boulevard.Token.Label()` the single place it is
+formatted and all four surfaces reading it. Two behavioural tests, each
+verified to fail against the unfixed code. The golden PDF stayed
+byte-identical throughout, which is the proof this changed only *where* the
+label comes from and not what an unrotated booklet prints.
+
+**Re-verified from the phone, on a clean box:** force-activating the October
+card left the tokens page row reading **October 2026** with dates 22 Aug –
+31 Oct, the card still scanned through to the shelf, and the rotate
+confirmation read "The card in the door — **October 2026** — keeps working."
+All three had said August before the fix.
+
+**One consequence worth stating plainly.** The migration backfills
+`printed_from` from `valid_from`, which is correct for every database
+predating the column, because nothing before this milestone could rewrite
+`valid_from`. The database used for the first half of *this* run had already
+been force-activated, so its backfill copied the damaged value and four rows
+still read "August 2026" — unrecoverable. That is the strongest argument for
+having found this before the milestone shipped rather than after.
+
+**It also broke the export immediately**, because `exportedTables` carries
+its own column list and a new column has to be added there too. That is
+exactly the risk the final whole-branch review named as its top concern,
+recurring within the hour — and it failed loudly only because `printed_from`
+is NOT NULL and a `Date` will not parse from `""`. A nullable column would
+have been dropped from every export in silence.
+`TestExportCarriesEveryColumnOfEveryExportedTable` now reads the live schema
+through `pragma_table_info` and fails on any drift.
 
 ## Second defect: plain reprint still demands the base URL
 
