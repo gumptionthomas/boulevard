@@ -60,7 +60,7 @@ func TestLeaveFormWithoutASessionIsInertNot404(t *testing.T) {
 	if rec.Code != http.StatusOK {
 		t.Fatalf("status = %d, want 200 — show the rule, do not hide the feature", rec.Code)
 	}
-	if !strings.Contains(rec.Body.String(), "Scan the code at the box to take or leave something.") {
+	if !strings.Contains(rec.Body.String(), "Scan the card at the shelf to take or leave.") {
 		t.Error("no-session form must carry the §6 explanation")
 	}
 }
@@ -127,7 +127,7 @@ func TestLeaveSubmit403KeepsTheComposedNote(t *testing.T) {
 		}
 	}
 	// Still inert, which is what makes re-rendering it populated safe.
-	if !strings.Contains(body, "Scan the code at the box to take or leave something.") {
+	if !strings.Contains(body, "Scan the card at the shelf to take or leave.") {
 		t.Error("the 403 form must still carry the §6 explanation")
 	}
 	if !strings.Contains(body, "disabled") {
@@ -369,7 +369,7 @@ func TestLeaveConfirmationDoesNotImplyItIsLive(t *testing.T) {
 	}
 	body := rec.Body.String()
 	for _, want := range []string{
-		"Left at the box.",
+		"Left at the shelf.",
 		"The steward looks at new things before they go on the shelf. Yours is waiting.",
 	} {
 		if !strings.Contains(body, want) {

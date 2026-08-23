@@ -4,12 +4,12 @@
      the page where the old "You can leave or take until …" contradicted
      itself most plainly. Kept in sync by hand — the two copies are noted as
      a follow-up rather than shared at a merge gate. */}}
-{{if .HasSession}}<div class="banner">You're at the box.<span>Until {{.Deadline}}.</span></div>{{end}}
+{{if .HasSession}}<div class="banner">You're at the shelf.<span>Until {{.Deadline}}.</span></div>{{end}}
 <main>
   <div class="site">{{.LibraryName}}</div>
   <h1>Leave something</h1>
   {{if not .HasSession}}
-    <p class="dim">Scan the code at the box to take or leave something.</p>
+    <p class="dim">Scan the card at the shelf to take or leave.</p>
   {{else if .AtLeaveLimit}}
     <p class="dim">You've left three things with this scan. Scan the card again for more.</p>
   {{end}}

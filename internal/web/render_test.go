@@ -230,7 +230,7 @@ func TestRenderedPagesAreDistinct(t *testing.T) {
 		// Every identifying field is populated. If the template so much as
 		// mentions one, this fails — which is the whole point of the page.
 		body := render("invalid.html", filled("That code isn't valid."))
-		for _, want := range []string{"That code isn't valid.", "scan the code inside the box door"} {
+		for _, want := range []string{"That code isn't valid.", "scan the card at the shelf"} {
 			if !strings.Contains(body, want) {
 				t.Errorf("invalid.html missing %q\n%s", want, body)
 			}
@@ -283,7 +283,7 @@ func TestRenderedPagesAreDistinct(t *testing.T) {
 			t.Errorf("shelf.html missing empty-shelf text\n%s", body)
 		}
 		// Deadline is empty, so the banner must not appear.
-		if strings.Contains(body, "You're at the box.") {
+		if strings.Contains(body, "You're at the shelf.") {
 			t.Errorf("shelf.html showed the banner with no deadline\n%s", body)
 		}
 	})

@@ -144,10 +144,10 @@ func TestShelfWithoutSessionExplainsTheRule(t *testing.T) {
 	st := testStore(t)
 	addLibrary(t, st, "fairview")
 	body := get(t, New(st, time.Now).Handler(), "/b/fairview/").Body.String()
-	if !strings.Contains(body, "Scan the code at the box to take or leave something.") {
+	if !strings.Contains(body, "Scan the card at the shelf to take or leave.") {
 		t.Error("no-session shelf must carry the §6 explanation")
 	}
-	if strings.Contains(body, "You're at the box.") {
+	if strings.Contains(body, "You're at the shelf.") {
 		t.Error("banner shown without a session")
 	}
 }
@@ -180,7 +180,7 @@ func TestShelfWithSessionShowsTheBanner(t *testing.T) {
 	New(st, func() time.Time { return now }).Handler().ServeHTTP(rec, req)
 
 	body := rec.Body.String()
-	if !strings.Contains(body, "You're at the box.") {
+	if !strings.Contains(body, "You're at the shelf.") {
 		t.Error("banner missing for a live session")
 	}
 	if !strings.Contains(body, "4:12 PM tomorrow") {
@@ -208,15 +208,15 @@ func TestShelfIgnoresASessionForAnotherLibrary(t *testing.T) {
 	rec := httptest.NewRecorder()
 	New(st, func() time.Time { return now }).Handler().ServeHTTP(rec, req)
 
-	if strings.Contains(rec.Body.String(), "You're at the box.") {
+	if strings.Contains(rec.Body.String(), "You're at the shelf.") {
 		t.Error("a session for another library must not grant presence here")
 	}
 }
 
 // TestPagesAreNotCacheable guards the one thing a shared cache in front of
 // this server could get catastrophically wrong: the shelf's body depends on
-// bl_session, so a stored copy hands one visitor's "You're at the box"
-// banner to a stranger, or hands the person standing at the box a cached
+// bl_session, so a stored copy hands one visitor's "You're at the shelf"
+// banner to a stranger, or hands the person standing at the shelf a cached
 // anonymous page.
 func TestPagesAreNotCacheable(t *testing.T) {
 	st := testStore(t)
