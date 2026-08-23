@@ -541,6 +541,68 @@ func TestBookletRotateKeepsTheActiveCard(t *testing.T) {
 	}
 }
 
+// Regression: after a rotation, a library holds thirteen-plus tokens, and
+// the plain reprint path (no --rotate) used to pass every one of them
+// straight into booklet.BuildPlan, which refuses anything that is not
+// exactly twelve — so reprinting broke the moment a steward rotated even
+// once. This is the one command a steward reaches for to replace a lost
+// booklet, so it breaking is the worst place for this bug to live. Fixed
+// by having runBooklet select tokens.NewestBooklet(toks) before building
+// the plan, the same selection --rotate and the desk's booklet download
+// already used. This test would have failed against the unfixed code with
+// "booklet needs exactly 12 tokens, got 13".
+func TestRunBookletReprintsAfterARotation(t *testing.T) {
+	ctx := context.Background()
+	path, s, libs := cliStore(t, "fairview")
+	lib := libs[0]
+	seedTokens(t, s, lib)
+	if err := s.ForceActivateToken(ctx, lib.ID, 1, boulevard.NewDate(2026, time.August, 20)); err != nil {
+		t.Fatal(err)
+	}
+
+	rotateOut := filepath.Join(t.TempDir(), "rotated.pdf")
+	if code := runBooklet([]string{
+		"--db", path, "--slug", "fairview", "--rotate", "--out", rotateOut,
+		"--yes", "--skip-dns",
+	}); code != exitOK {
+		t.Fatalf("booklet --rotate exit = %d, want %d", code, exitOK)
+	}
+
+	all, err := s.TokensForLibrary(ctx, lib.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(all) != tokens.PeriodCount+1 {
+		t.Fatalf("test setup: %d tokens after rotate, want %d", len(all), tokens.PeriodCount+1)
+	}
+
+	reprintOut := filepath.Join(t.TempDir(), "reprinted.pdf")
+	out := captureStdout(t, func() {
+		code := runBooklet([]string{
+			"--name", lib.Name, "--location", lib.LocationLabel,
+			"--base-url", lib.BaseURL, "--slug", "fairview",
+			"--yes", "--skip-dns",
+			"--db", path, "--out", reprintOut,
+		})
+		if code != exitOK {
+			t.Fatalf("plain reprint after a rotation: exit = %d, want %d", code, exitOK)
+		}
+	})
+
+	data, err := os.ReadFile(reprintOut)
+	if err != nil {
+		t.Fatalf("read output: %v", err)
+	}
+	if !bytes.HasPrefix(data, []byte("%PDF-")) {
+		t.Error("output is not a PDF")
+	}
+	// The success line names the card count it wrote; twelve confirms the
+	// newest booklet was selected rather than all thirteen-plus tokens.
+	if !strings.Contains(out, "(12 cards)") {
+		t.Errorf("reprint did not report 12 cards:\n%s", out)
+	}
+}
+
 func TestBookletRotateRefusesWithoutAnExistingLibrary(t *testing.T) {
 	path, _, _ := cliStore(t)
 	out := filepath.Join(t.TempDir(), "booklet.pdf")

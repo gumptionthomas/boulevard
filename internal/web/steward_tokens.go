@@ -301,10 +301,12 @@ const bookletTokensMsg = "This booklet is incomplete. Rotate to mint a fresh twe
 
 // handleStewardBookletPDF renders the current booklet and sends it.
 //
-// The twelve cards are the highest-numbered booklet the library holds:
-// rotation makes period_index monotonic, and BuildPlan requires exactly
-// twelve tokens. Reprinting an older booklet is not offered — its cards are
-// either in the door already or discarded.
+// The twelve cards are the highest-numbered booklet the library holds —
+// tokens.NewestBooklet selects them, the same shared selection
+// cmd/boulevard/booklet.go's plain reprint and its --rotate mode both use,
+// so this handler carries no copy of that arithmetic to drift from theirs.
+// Reprinting an older booklet is not offered — its cards are either in the
+// door already or discarded.
 //
 // This response carries every card's secret across the network, and serve
 // terminates no TLS. The page linking here says so; withholding the
@@ -327,20 +329,7 @@ func (s *Server) handleStewardBookletPDF(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
-	maxIndex := 0
-	for _, tok := range all {
-		if tok.PeriodIndex > maxIndex {
-			maxIndex = tok.PeriodIndex
-		}
-	}
-	start := ((maxIndex-1)/tokens.PeriodCount)*tokens.PeriodCount + 1
-
-	toks := make([]boulevard.Token, 0, tokens.PeriodCount)
-	for _, tok := range all {
-		if tok.PeriodIndex >= start {
-			toks = append(toks, tok)
-		}
-	}
+	toks := tokens.NewestBooklet(all)
 	if len(toks) != tokens.PeriodCount {
 		s.renderStewardTokens(w, r, lib, http.StatusConflict, "", bookletTokensMsg)
 		return

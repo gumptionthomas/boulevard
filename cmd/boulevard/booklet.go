@@ -151,9 +151,28 @@ func runBooklet(args []string) int {
 		return exitIO
 	}
 
-	toks, err := s.TokensForLibrary(ctx, lib.ID)
+	all, err := s.TokensForLibrary(ctx, lib.ID)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "  x  %v\n", err)
+		return exitIO
+	}
+	// BuildPlan refuses anything that is not exactly twelve tokens, and a
+	// library that has rotated holds thirteen or more: the surviving active
+	// card from an older booklet, plus the newest booklet's own twelve. A
+	// plain reprint (this path) means "give me back the same cards
+	// unchanged," and the cards that answers for are the newest booklet's —
+	// an older, already-superseded booklet has nothing left to reprint.
+	// tokens.NewestBooklet is the one place this selection is written; it
+	// is shared with --rotate above and the desk's booklet download so a
+	// fix to one cannot quietly stop applying to the others, which is
+	// exactly how this path shipped broken the first time (it had no
+	// selection at all, and passed every token straight to BuildPlan).
+	toks := tokens.NewestBooklet(all)
+	if len(toks) != tokens.PeriodCount {
+		fmt.Fprintf(os.Stderr,
+			"  x  %s's newest booklet holds %d cards, not %d — it looks like a rotation was interrupted.\n"+
+				"     Run `boulevard booklet --rotate --slug %s` to mint a clean twelve.\n",
+			lib.Slug, len(toks), tokens.PeriodCount, lib.Slug)
 		return exitIO
 	}
 
@@ -285,12 +304,12 @@ func runBookletRotate(o bookletOpts) int {
 	// BuildPlan refuses anything that is not exactly twelve tokens, and the
 	// library now holds thirteen or more (the surviving active card plus
 	// the new twelve) — so render only the booklet just minted.
-	toks := make([]boulevard.Token, 0, tokens.PeriodCount)
-	for _, tok := range all {
-		if tok.PeriodIndex >= rot.StartIndex {
-			toks = append(toks, tok)
-		}
-	}
+	// tokens.NewestBooklet does the same selection RotatePendingTokens'
+	// rot.StartIndex already implies; using the shared function here rather
+	// than filtering on rot.StartIndex directly keeps this path, the plain
+	// reprint below, and the desk's booklet download from carrying three
+	// independent copies of the same arithmetic.
+	toks := tokens.NewestBooklet(all)
 
 	plan, err := booklet.BuildPlan(booklet.Input{
 		Library:   lib,
