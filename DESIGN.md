@@ -303,14 +303,14 @@ Milestone 4b adds token management and export as CLI siblings of the web admin, 
 
 ```
 boulevard tokens         [--db boulevard.db] [--slug SLUG]
-boulevard force-activate [--db boulevard.db] [--slug SLUG] <card number>
-boulevard extend         [--db boulevard.db] [--slug SLUG] <card number>
-boulevard revoke         [--db boulevard.db] [--slug SLUG] <card number>
+boulevard force-activate [--db boulevard.db] [--slug SLUG] <handle>
+boulevard extend         [--db boulevard.db] [--slug SLUG] <handle>
+boulevard revoke         [--db boulevard.db] [--slug SLUG] <handle>
 boulevard export         [--db boulevard.db] [--slug SLUG] --out FILE [--force]
 boulevard booklet ... --rotate
 ```
 
-`tokens`, `force-activate`, `extend` and `revoke` address cards by their printed number, not by id — a steward is holding a card that says "September," not a 26-character identifier. `--rotate` is `booklet`'s write path; the plain command already reprints an existing library's twelve cards unchanged, so `--rotate` is what mints a new twelve instead.
+`tokens`, `force-activate`, `extend` and `revoke` address cards by handle, not by id — a steward is holding a card, not typing a 26-character identifier — but the handle is `period_index`, not the number printed on the card. `boulevard tokens` prints both together, `[13]  Booklet 2 · Card 1`, precisely because the second booklet's first card carries a printed "1" while its handle is 13 (§6). The bracketed number is what the mutation commands accept; the friendlier label beside it is only how the steward identifies the physical card in hand. `--rotate` is `booklet`'s write path; the plain command already reprints an existing library's twelve cards unchanged, so `--rotate` is what mints a new twelve instead.
 
 Also ship a single-service `docker-compose.yml`.
 

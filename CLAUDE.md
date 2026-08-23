@@ -51,9 +51,9 @@ boulevard reshelve    [--db boulevard.db] [--slug SLUG] <id>
 boulevard release     [--db boulevard.db] [--slug SLUG] <id>
 boulevard steward-key [--db boulevard.db] [--slug SLUG]
 boulevard tokens         [--db boulevard.db] [--slug SLUG]
-boulevard force-activate [--db boulevard.db] [--slug SLUG] <card number>
-boulevard extend         [--db boulevard.db] [--slug SLUG] <card number>
-boulevard revoke         [--db boulevard.db] [--slug SLUG] <card number>
+boulevard force-activate [--db boulevard.db] [--slug SLUG] <handle>
+boulevard extend         [--db boulevard.db] [--slug SLUG] <handle>
+boulevard revoke         [--db boulevard.db] [--slug SLUG] <handle>
 boulevard export         [--db boulevard.db] [--slug SLUG] --out FILE [--force]
 boulevard booklet ... --rotate
 boulevard version

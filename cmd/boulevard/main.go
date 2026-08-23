@@ -70,9 +70,9 @@ Usage:
   boulevard release  [--db PATH] [--slug SLUG] <id>
   boulevard steward-key [--db PATH] [--slug SLUG]
   boulevard tokens         [--db PATH] [--slug SLUG]
-  boulevard force-activate [--db PATH] [--slug SLUG] <card number>
-  boulevard extend         [--db PATH] [--slug SLUG] <card number>
-  boulevard revoke         [--db PATH] [--slug SLUG] <card number>
+  boulevard force-activate [--db PATH] [--slug SLUG] <handle>
+  boulevard extend         [--db PATH] [--slug SLUG] <handle>
+  boulevard revoke         [--db PATH] [--slug SLUG] <handle>
   boulevard export         [--db PATH] [--slug SLUG] --out PATH [--force]
   boulevard version
 `)

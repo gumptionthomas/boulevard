@@ -22,9 +22,9 @@ booklet's twelve cards and a way to take the whole library with you.
     boulevard approve <id>                 # put it on the shelf
     boulevard reject  <id>                 # release it
     boulevard tokens                       # list the twelve cards
-    boulevard force-activate <card number> # put a pending card in the door early
-    boulevard extend <card number>         # give the active card another month
-    boulevard revoke <card number>         # burn a card's secret for good
+    boulevard force-activate <handle>      # put a pending card in the door early
+    boulevard extend <handle>              # give the active card another month
+    boulevard revoke <handle>              # burn a card's secret for good
     boulevard booklet --rotate --slug SLUG # mint the next twelve cards
     boulevard export --out fairview.db     # the library as one runnable file
 
@@ -44,9 +44,14 @@ shed, settings, pins, tokens, export) is reachable from a phone at
 `/b/{slug}/steward/`; `queue`/`approve`/`reject` and their shed-side
 siblings remain as CLIs for headless use, joined now by `tokens`,
 `force-activate`, `extend`, `revoke`, `booklet --rotate` and `export`.
-Force-activate, extend and revoke address a card by the number printed on
-it, not by its id. A revoked card cannot be un-revoked; the way forward is
-force-activating the next card or rotating onto a fresh booklet.
+Force-activate, extend and revoke address a card by the handle
+`boulevard tokens` prints in brackets beside it, not by its 26-character
+id — but also not by the friendlier "Card N" position printed next to that
+handle, which is only the same number as the handle for a library that has
+never rotated. `boulevard tokens` shows both: `[13]  Booklet 2 · Card 1`
+means "type 13," even though the physical card reads "1." A revoked card
+cannot be un-revoked; the way forward is force-activating the next card or
+rotating onto a fresh booklet.
 
 **Export writes the library out as one runnable SQLite file, not a format.**
 It is the same schema `boulevard.db` already uses, so `boulevard serve --db
