@@ -127,12 +127,15 @@ Period 1 runs from the install date to the end of that calendar month, however s
 tokens
   id
   secret          TEXT  -- stored in plaintext, see below
-  period_index    INT   -- 1..12
+  period_index    INT   -- 1..12 in the first booklet; monotonic across rotations (§6)
   valid_from      DATE
   valid_until     DATE
+  printed_from    DATE  -- the period as minted; names the card, never modified
   state           TEXT  -- pending | active | expired | revoked
   first_seen_at   TIMESTAMP NULL
 ```
+
+**`printed_from` is what names a card**, and it is stored rather than derived because neither endpoint survives the steward overrides below. Force-activate rewrites `valid_from`, so deriving the label from it made an October card show up everywhere as August the moment it went into the door early — including on the confirmation that asks whether to discard secrets while naming the card it will keep. `valid_until` is no refuge: extend moves that one. The label is set once, at mint, and never modified; the dates beside it move freely. This is the field the paragraph below depends on when it says the divergence is acceptable.
 
 **Do not derive codes from a time function (TOTP-style).** Server clock drift, DST, and a steward who swaps the card four days late all become silent auth failures with no recovery path. Explicit stored periods make every failure inspectable and fixable.
 
@@ -144,11 +147,13 @@ tokens
 4. Outside the window but token is otherwise valid → a diagnostic page, distinct from failure, and **which one depends on the side**. Past the window plus grace: "this card is out of date, the steward needs to swap it", naming the day it stopped working. Before the window plus grace — a spare card from the booklet, or a card swapped in early — "this card isn't in use yet", naming the day it starts working, with the year when that day falls in another calendar year. Telling the holder of next July's card that it is out of date and stopped working on a date that has not happened sends a steward looking for a fault that does not exist.
 5. On first valid scan, set `first_seen_at`. Mark the token `active` **only if its period is later than the current active token's**, expiring the previous active token when it is. A token older than the current active one still grants a session and still records `first_seen_at`, but does not become active — otherwise a stray card found in a drawer could rewind the steward's sense of which card is in the door.
 
-**Steward overrides:** force-activate any pending card (swapped early), extend the current card (booklet lost, replacement not printed yet), revoke a card (sheet stolen or photographed).
+**Steward overrides:** force-activate any pending card (swapped early), extend the current card (booklet lost, replacement not printed yet), revoke a card (sheet stolen or photographed). Force-activate works by moving `valid_from` to today, not by writing `state` alone — validation above reads `state` only for `revoked`, so a card whose period has not started would still answer `NotYet` no matter what `state` says.
 
-**Reprinting.** Secrets are stored in plaintext so the booklet can be regenerated at any time. This is a deliberate trade: the threat model is a steward's own server, and if that server is compromised the shelf is already lost. The alternative — hashed secrets — makes a lost booklet unrecoverable, which is a far more likely event than server compromise. Reprint regenerates the PDF for all `pending` periods.
+The printed card then disagrees with the database: a card reading "Oct 1 – Oct 31" will have a period starting today. That is accepted rather than fixed, because the steward has physically put that card in the door and the month name is how they identify it — which is exactly why the name comes from `printed_from` and not from a field these overrides rewrite. A steward holding the October card must find a row saying October, whatever its dates now read.
 
-**Rotation past month 12:** the steward generates a new booklet. Old tokens expire naturally.
+**Reprinting.** Secrets are stored in plaintext so the booklet can be regenerated at any time. This is a deliberate trade: the threat model is a steward's own server, and if that server is compromised the shelf is already lost. The alternative — hashed secrets — makes a lost booklet unrecoverable, which is a far more likely event than server compromise. Reprint regenerates the PDF for the newest booklet's twelve cards, whatever state each is in — a booklet is a physical sheet, and a reprint has to reproduce the sheet the steward is holding, including the card already in the door. It is selection by booklet, not by state: after a rotation the surviving active card belongs to the *older* booklet and is deliberately not on the reprint, because it is already taped inside the box.
+
+**Rotation:** the steward mints a fresh twelve at any time — the sheet was photographed, or the booklet is running out. It replaces the pending cards rather than waiting for them to expire, and leaves the card in the door alone. See §6 for what that costs and why the active card survives.
 
 ### The booklet
 
@@ -188,6 +193,8 @@ Requires a session. Item enters the **approval queue** (steward-configurable; de
 On approval: `copies_total = copies_left = default_copies`, state `shelved`.
 
 If the shelf is full, the **oldest non-pinned item** is evicted to the shed. FIFO, deliberately dumb, requires no steward labor, and — critically — is not attention-weighted. Letting popular items survive longer would rebuild the algorithmic feed this project exists in reaction to.
+
+**A link with no scheme is assumed `https`.** Typing `https://` on a phone keyboard, one-handed, outdoors, is real friction on the one form a passerby ever fills in, and a bare domain is unambiguous about what was meant. The test for "no scheme" is textual rather than `url.Parse`'s `Scheme` field, because Go reads `example.org:8080/x` as scheme `example.org` — and it only ever *supplies* a missing scheme, never replaces one. That second half is load-bearing: prepending whenever the scheme is not http or https would turn `javascript:alert(1)` into `https://javascript:alert(1)`, an href far worse than the rejection it replaced. Anything that named a scheme still meets the http/https check untouched. The accepted cost is that a bare host:port matches the scheme grammar and is not helped.
 
 ### Taking
 
@@ -261,9 +268,11 @@ Before a key exists, **every steward route 404s**, including the login form — 
 - Approval queue
 - Shelf: remove, pin, unpin
 - Shed: re-shelve, release. Removing an item from the shelf sheds it rather than releasing it outright, recording `removed` as its own reason alongside `evicted`, `expired` and `taken` — a misfire is recoverable by re-shelving, and release stays the deliberate second step.
-- Tokens: current card, force-activate, extend, revoke, regenerate booklet, download PDF
+- Tokens: twelve rows, one per period — month, dates, state, whether it has been seen, the active card marked. Inline force-activate, extend, revoke, shown only where legal so the page never offers a tap that can only fail. Below the list: download the booklet PDF, and rotate onto a fresh twelve. **Revoke and rotate confirm first**, on their own page, because they are the two acts that cannot be undone and the desk is the one-thumb surface — a phone must not offer an irreversible act with less friction than the terminal does. Each confirmation names what it costs: how many secrets a rotation discards, and — when the card being revoked is the one in the door, or when nothing has been scanned so a rotation discards every printed card — that the box stops working until someone walks to it with a card that still scans.
 - Settings: name, location, slots, max age, default copies, approval on/off
-- Export: entire library as one file
+- Export: the entire library as one runnable SQLite file, with a plaintext warning at the point of download
+
+Four decisions from the token-management design (`docs/superpowers/specs/2026-08-22-token-management-design.md`) are worth recording here because they shape the surfaces above. **Rotate leaves the active card alone.** It discards every `pending` token and mints twelve fresh ones, but the card currently in the door is untouched — the alternative would mean an action taken at a keyboard makes the box stop working until someone walks to it, and killing the live card on purpose stays available as its own act: revoke. **`period_index` is monotonic across booklets, not 1–12.** `UNIQUE (library_id, period_index)` means a rotation cannot reuse 1–12 while the active card still holds one of them, so the second booklet mints 13–24, the third 25–36; `booklet` and `card` are derived from `period_index` rather than stored, and a card's *printed* number is its position in the booklet being laid out, not its index. **A rotation's new booklet never starts before today.** It begins the day after the active card ends, so no gap opens between the card in the door and the next one — but if that card lapsed months ago, following it blindly would mint cards already past their window plus grace on the day they are printed. §4 keeps periods explicit precisely so a steward who swaps the card late is fixable rather than silently broken; handing that steward dead cards is the same failure moved somewhere new. **A pending card that has been seen is revoked, not deleted, when a rotation discards it.** Activation moves forward only (§4), so a lower-numbered card scanned inside its own window grants a session and stays `pending` — and `sessions.token_id` references it. Deleting that row would fail the foreign key and make rotation refuse, at exactly the moment (a photographed sheet) a steward most needs it; `revoked` discards the secret just as completely while leaving the session to expire on its own.
 
 ---
 
@@ -296,6 +305,19 @@ Milestone 0 ships this command standalone, before any server exists:
 ```
 boulevard booklet --name "..." --location "..." --base-url https://... --out booklet.pdf
 ```
+
+Milestone 4b adds token management and export as CLI siblings of the web admin, the same way the approval queue and the shed stayed CLIs after 4a's desk shipped:
+
+```
+boulevard tokens         [--db boulevard.db] [--slug SLUG]
+boulevard force-activate [--db boulevard.db] [--slug SLUG] <handle>
+boulevard extend         [--db boulevard.db] [--slug SLUG] <handle>
+boulevard revoke         [--db boulevard.db] [--slug SLUG] <handle>
+boulevard export         [--db boulevard.db] [--slug SLUG] --out FILE [--force]
+boulevard booklet ... --rotate
+```
+
+`tokens`, `force-activate`, `extend` and `revoke` address cards by handle, not by id — a steward is holding a card, not typing a 26-character identifier — but the handle is `period_index`, not the number printed on the card. `boulevard tokens` prints both together, `[13]  Booklet 2 · Card 1`, precisely because the second booklet's first card carries a printed "1" while its handle is 13 (§6). The bracketed number is what the mutation commands accept; the friendlier label beside it is only how the steward identifies the physical card in hand. `--rotate` is `booklet`'s write path; the plain command already reprints an existing library's twelve cards unchanged, so `--rotate` is what mints a new twelve instead.
 
 Also ship a single-service `docker-compose.yml`.
 
@@ -463,6 +485,8 @@ This is the smallest artifact that proves the whole model. If it feels awkward, 
 **Milestone 4 — steward.** Full admin, token management, export.
 
 **Milestone 5 — polish.** The empty state, cold-cellular performance, one-handed outdoor usability, the about page.
+
+It also carries a **deliberate look-and-feel sweep**, mostly non-functional, called for after the Milestone 4b acceptance run: the bones are right, but **copy, ordering and type sizes** each need a pass. Named there or found since — a rotate confirmation whose most consequential sentence is the smallest type on the page; a destructive control sitting closer to a benign one than anything else on the shelf; the CLI and the desk labelling the same card differently ("Booklet 2 · Card 1" against "Booklet 2 · Card 1 of 12"); the tokens page having no empty state where the CLI has a good one; and `boulevard booklet`'s reprint still asking for a base URL that is printed on a mounted sign. This is a sweep, not a rewrite: nothing here changes what the software does.
 
 **Milestone 6 (v2) — the host layer.** Registry database, steward invites and accounts, neighborhood map, private moderation queue, quotas, `export-host` with redirect map. Reachable without refactoring only if §10's v1 obligation was honored throughout.
 

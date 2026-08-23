@@ -23,7 +23,7 @@ import (
 type bookletOpts struct {
 	name, location, baseURL, slug string
 	out, db                       string
-	skipDNS, yes, force           bool
+	skipDNS, yes, force, rotate   bool
 	installDate                   boulevard.Date
 }
 
@@ -40,8 +40,27 @@ func runBooklet(args []string) int {
 	fs.BoolVar(&o.yes, "yes", false, "skip the confirmation prompt")
 	fs.BoolVar(&o.yes, "y", false, "shorthand for --yes")
 	fs.BoolVar(&o.force, "force", false, "overwrite an existing output file")
+	fs.BoolVar(&o.rotate, "rotate", false, "mint a new booklet for an existing library")
 	if err := fs.Parse(args); err != nil {
 		return exitUsage
+	}
+
+	// --rotate targets a library that already has a name, a location and a
+	// base URL; asking for them again would invite retyping a base URL
+	// that is printed on a mounted sign, which is how the one permanent
+	// artifact acquires a typo. So --rotate takes them from the stored
+	// library instead of from flags, and refuses outright if any of the
+	// three is passed rather than silently ignoring it.
+	if o.rotate {
+		for _, f := range []struct{ val, label string }{
+			{o.name, "name"}, {o.location, "location"}, {o.baseURL, "base URL"},
+		} {
+			if f.val != "" {
+				fmt.Fprintf(os.Stderr, "  x  --rotate mints new cards for an existing library; it cannot change its %s.\n", f.label)
+				return exitUsage
+			}
+		}
+		return runBookletRotate(o)
 	}
 
 	if o.name == "" || o.location == "" || o.baseURL == "" {
@@ -132,9 +151,28 @@ func runBooklet(args []string) int {
 		return exitIO
 	}
 
-	toks, err := s.TokensForLibrary(ctx, lib.ID)
+	all, err := s.TokensForLibrary(ctx, lib.ID)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "  x  %v\n", err)
+		return exitIO
+	}
+	// BuildPlan refuses anything that is not exactly twelve tokens, and a
+	// library that has rotated holds thirteen or more: the surviving active
+	// card from an older booklet, plus the newest booklet's own twelve. A
+	// plain reprint (this path) means "give me back the same cards
+	// unchanged," and the cards that answers for are the newest booklet's —
+	// an older, already-superseded booklet has nothing left to reprint.
+	// tokens.NewestBooklet is the one place this selection is written; it
+	// is shared with --rotate above and the desk's booklet download so a
+	// fix to one cannot quietly stop applying to the others, which is
+	// exactly how this path shipped broken the first time (it had no
+	// selection at all, and passed every token straight to BuildPlan).
+	toks := tokens.NewestBooklet(all)
+	if len(toks) != tokens.PeriodCount {
+		fmt.Fprintf(os.Stderr,
+			"  x  %s's newest booklet holds %d cards, not %d — it looks like a rotation was interrupted.\n"+
+				"     Run `boulevard booklet --rotate --slug %s` to mint a clean twelve.\n",
+			lib.Slug, len(toks), tokens.PeriodCount, lib.Slug)
 		return exitIO
 	}
 
@@ -181,6 +219,184 @@ func runBooklet(args []string) int {
 	fmt.Printf("\n  %s library %s\n  %s  (%d cards)\n  %s\n\n  Print it, cut the cards, and scan one before you mount anything.\n\n",
 		verb, lib.Slug, o.out, len(toks), o.db)
 	return exitOK
+}
+
+// runBookletRotate mints the next twelve cards for a library whose sheet
+// was stolen, photographed, or is simply running low, without touching the
+// card currently in the door. It is a separate path from create/reprint
+// rather than a branch woven through it: rotation never creates a library,
+// never re-validates a base URL, and discards secrets, so sharing the
+// create path's flow would mean threading "but not really" through most of
+// it.
+func runBookletRotate(o bookletOpts) int {
+	if o.slug == "" {
+		fmt.Fprintln(os.Stderr, "  x  --rotate requires --slug to say which library.")
+		return exitUsage
+	}
+	if _, err := os.Stat(o.out); err == nil && !o.force {
+		fmt.Fprintf(os.Stderr, "  x  %s already exists. Pass --force to overwrite it.\n", o.out)
+		return exitUsage
+	}
+
+	ctx := context.Background()
+
+	// Same reasoning as the create/reprint path: look before opening,
+	// because opening the database creates the file, and a run that is
+	// about to refuse must leave nothing behind.
+	peek, err := peekDatabase(ctx, o)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "  x  %v\n", err)
+		return exitIO
+	}
+	if !peek.found {
+		fmt.Fprintf(os.Stderr, "  x  no library %q to rotate. Run `boulevard booklet` without --rotate to create one.\n", o.slug)
+		return exitUsage
+	}
+
+	s, err := store.Open(o.db)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "  x  %v\n", err)
+		return exitIO
+	}
+	defer s.Close()
+
+	lib, err := s.LibraryBySlug(ctx, o.slug)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "  x  %v\n", err)
+		return exitIO
+	}
+
+	existing, err := s.TokensForLibrary(ctx, lib.ID)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "  x  %v\n", err)
+		return exitIO
+	}
+
+	rot := tokens.PlanRotation(existing, boulevard.DateFromTime(time.Now()))
+	fresh, err := buildRotatedTokens(lib.ID, rot, rand.Reader)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "  x  %v\n", err)
+		return exitIO
+	}
+
+	// This is the tool's most consequential warning on this path — it
+	// discards secrets — so it must read before the confirmation prompt,
+	// not alongside or after it.
+	printRotateWarning(os.Stdout, lib.Slug, existing)
+
+	// Not the create path's question. That one asks about the browse sign,
+	// which rotation does not touch; this decision is about discarding
+	// secrets, and the prompt has to ask about the thing being decided.
+	if !o.yes {
+		if !confirm(os.Stdin, os.Stdout, "Discarded secrets cannot be brought back. Mint the new twelve?") {
+			fmt.Println("Nothing written.")
+			return exitDeclined
+		}
+	}
+
+	if err := s.RotatePendingTokens(ctx, lib.ID, fresh); err != nil {
+		fmt.Fprintf(os.Stderr, "  x  %v\n", err)
+		return exitIO
+	}
+
+	all, err := s.TokensForLibrary(ctx, lib.ID)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "  x  %v\n", err)
+		return exitIO
+	}
+	// BuildPlan refuses anything that is not exactly twelve tokens, and the
+	// library now holds thirteen or more (the surviving active card plus
+	// the new twelve) — so render only the booklet just minted.
+	// tokens.NewestBooklet does the same selection RotatePendingTokens'
+	// rot.StartIndex already implies; using the shared function here rather
+	// than filtering on rot.StartIndex directly keeps this path, the plain
+	// reprint below, and the desk's booklet download from carrying three
+	// independent copies of the same arithmetic.
+	toks := tokens.NewestBooklet(all)
+
+	plan, err := booklet.BuildPlan(booklet.Input{
+		Library:   lib,
+		Tokens:    toks,
+		SourceURL: version.RepoURL,
+		BuildLine: "boulevard " + version.Version + " (" + version.Commit + ")",
+	})
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "  x  %v\n", err)
+		return exitIO
+	}
+
+	pdfBytes, err := booklet.Renderer{CreationDate: time.Now()}.Render(plan)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "  x  %v\n", err)
+		return exitIO
+	}
+	// Owner-only, like the database: every card in this PDF carries a token
+	// secret in its QR, and a secret is the write credential for the shelf.
+	if err := os.WriteFile(o.out, pdfBytes, store.FileMode); err != nil {
+		fmt.Fprintf(os.Stderr, "  x  write %s: %v\n", o.out, err)
+		return exitIO
+	}
+	if err := os.Chmod(o.out, store.FileMode); err != nil {
+		fmt.Fprintf(os.Stderr, "  x  restrict %s: %v\n", o.out, err)
+		return exitIO
+	}
+
+	fmt.Printf("\n  Rotated library %s\n  %s  (%d cards)\n  %s\n\n  Print it, cut the cards, and scan one before you mount anything.\n\n",
+		lib.Slug, o.out, len(toks), o.db)
+	return exitOK
+}
+
+// buildRotatedTokens mints the next twelve cards' secrets and ids, exactly
+// as mintBooklet does for a brand-new library — the same split InsertTokens
+// already uses, which is what keeps randomness injectable.
+func buildRotatedTokens(id boulevard.LibraryID, rot tokens.Rotation, entropy io.Reader) ([]boulevard.Token, error) {
+	periods := tokens.Periods(rot.Start, tokens.PeriodCount)
+	toks := make([]boulevard.Token, 0, len(periods))
+	for _, p := range periods {
+		secret, err := tokens.NewSecret(entropy)
+		if err != nil {
+			return nil, err
+		}
+		tokID, err := boulevard.RandomBase32(entropy, boulevard.EntropyBytes)
+		if err != nil {
+			return nil, err
+		}
+		toks = append(toks, boulevard.Token{
+			ID: tokID, LibraryID: id, Secret: secret,
+			PeriodIndex: rot.StartIndex + p.Index - 1,
+			ValidFrom:   p.From, ValidUntil: p.Until,
+			State: boulevard.TokenPending,
+		})
+	}
+	return toks, nil
+}
+
+// printRotateWarning states what rotation costs before the prompt asks
+// permission for it: the live card is untouched, but every pending card's
+// secret is discarded, and a discarded secret cannot be un-discarded.
+func printRotateWarning(w io.Writer, slug string, existing []boulevard.Token) {
+	active, pending := false, 0
+	for _, tok := range existing {
+		switch tok.State {
+		case boulevard.TokenActive:
+			active = true
+		case boulevard.TokenPending:
+			pending++
+		}
+	}
+	fmt.Fprintf(w, "\n  Rotating %s onto a new booklet.\n", slug)
+	if active {
+		fmt.Fprintf(w, "    The card currently in the door keeps working.\n"+
+			"    The %d unprinted cards are replaced and their secrets discarded.\n\n", pending)
+	} else {
+		// No card has ever been scanned, so there is nothing to keep — and
+		// this is the case that reads as harmless while costing the most:
+		// every card already printed becomes waste paper, and the box
+		// cannot be written to until a new one is carried to it.
+		fmt.Fprintf(w, "    Nothing has been scanned, so there is no card in the door to keep:\n"+
+			"    all %d cards are replaced and their secrets discarded. Nothing can be\n"+
+			"    left or taken at the box until a card from the new booklet is in it.\n\n", pending)
+	}
 }
 
 // dbPeek is what the database already holds for this run's slug, read

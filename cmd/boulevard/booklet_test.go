@@ -13,6 +13,7 @@ import (
 
 	"github.com/gumptionthomas/boulevard/internal/boulevard"
 	"github.com/gumptionthomas/boulevard/internal/store"
+	"github.com/gumptionthomas/boulevard/internal/tokens"
 )
 
 func TestConfirmAcceptsYes(t *testing.T) {
@@ -482,6 +483,236 @@ func TestRunBookletWritesOwnerOnlyFiles(t *testing.T) {
 		if got := info.Mode().Perm(); got != 0o600 {
 			t.Errorf("%s mode = %#o, want %#o; it carries token secrets", filepath.Base(path), got, 0o600)
 		}
+	}
+}
+
+// --rotate mints a new booklet and leaves the card in the door alone.
+func TestBookletRotateKeepsTheActiveCard(t *testing.T) {
+	ctx := context.Background()
+	path, s, libs := cliStore(t, "fairview")
+	lib := libs[0]
+	seedTokens(t, s, lib)
+	if err := s.ForceActivateToken(ctx, lib.ID, 1, boulevard.NewDate(2026, time.August, 20)); err != nil {
+		t.Fatal(err)
+	}
+	before, err := s.TokensForLibrary(ctx, lib.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var activeSecret string
+	for _, tok := range before {
+		if tok.State == boulevard.TokenActive {
+			activeSecret = tok.Secret
+		}
+	}
+
+	out := filepath.Join(t.TempDir(), "booklet.pdf")
+	if code := runBooklet([]string{
+		"--db", path, "--slug", "fairview", "--rotate", "--out", out,
+		"--yes", "--skip-dns",
+	}); code != exitOK {
+		t.Fatalf("booklet --rotate exit = %d, want %d", code, exitOK)
+	}
+
+	after, err := s.TokensForLibrary(ctx, lib.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(after) != tokens.PeriodCount+1 {
+		t.Fatalf("%d tokens after rotate, want %d", len(after), tokens.PeriodCount+1)
+	}
+	kept, fresh := false, 0
+	for _, tok := range after {
+		if tok.Secret == activeSecret && tok.State == boulevard.TokenActive {
+			kept = true
+		}
+		if tok.PeriodIndex >= 13 && tok.PeriodIndex <= 24 {
+			fresh++
+		}
+	}
+	if !kept {
+		t.Error("the card in the door did not survive --rotate")
+	}
+	if fresh != tokens.PeriodCount {
+		t.Errorf("%d cards at 13..24, want %d", fresh, tokens.PeriodCount)
+	}
+	if _, err := os.Stat(out); err != nil {
+		t.Errorf("no PDF written: %v", err)
+	}
+}
+
+// Regression: after a rotation, a library holds thirteen-plus tokens, and
+// the plain reprint path (no --rotate) used to pass every one of them
+// straight into booklet.BuildPlan, which refuses anything that is not
+// exactly twelve — so reprinting broke the moment a steward rotated even
+// once. This is the one command a steward reaches for to replace a lost
+// booklet, so it breaking is the worst place for this bug to live. Fixed
+// by having runBooklet select tokens.NewestBooklet(toks) before building
+// the plan, the same selection --rotate and the desk's booklet download
+// already used. This test would have failed against the unfixed code with
+// "booklet needs exactly 12 tokens, got 13".
+func TestRunBookletReprintsAfterARotation(t *testing.T) {
+	ctx := context.Background()
+	path, s, libs := cliStore(t, "fairview")
+	lib := libs[0]
+	seedTokens(t, s, lib)
+	if err := s.ForceActivateToken(ctx, lib.ID, 1, boulevard.NewDate(2026, time.August, 20)); err != nil {
+		t.Fatal(err)
+	}
+
+	rotateOut := filepath.Join(t.TempDir(), "rotated.pdf")
+	if code := runBooklet([]string{
+		"--db", path, "--slug", "fairview", "--rotate", "--out", rotateOut,
+		"--yes", "--skip-dns",
+	}); code != exitOK {
+		t.Fatalf("booklet --rotate exit = %d, want %d", code, exitOK)
+	}
+
+	all, err := s.TokensForLibrary(ctx, lib.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(all) != tokens.PeriodCount+1 {
+		t.Fatalf("test setup: %d tokens after rotate, want %d", len(all), tokens.PeriodCount+1)
+	}
+
+	reprintOut := filepath.Join(t.TempDir(), "reprinted.pdf")
+	out := captureStdout(t, func() {
+		code := runBooklet([]string{
+			"--name", lib.Name, "--location", lib.LocationLabel,
+			"--base-url", lib.BaseURL, "--slug", "fairview",
+			"--yes", "--skip-dns",
+			"--db", path, "--out", reprintOut,
+		})
+		if code != exitOK {
+			t.Fatalf("plain reprint after a rotation: exit = %d, want %d", code, exitOK)
+		}
+	})
+
+	data, err := os.ReadFile(reprintOut)
+	if err != nil {
+		t.Fatalf("read output: %v", err)
+	}
+	if !bytes.HasPrefix(data, []byte("%PDF-")) {
+		t.Error("output is not a PDF")
+	}
+	// The success line names the card count it wrote; twelve confirms the
+	// newest booklet was selected rather than all thirteen-plus tokens.
+	if !strings.Contains(out, "(12 cards)") {
+		t.Errorf("reprint did not report 12 cards:\n%s", out)
+	}
+}
+
+func TestBookletRotateRefusesWithoutAnExistingLibrary(t *testing.T) {
+	path, _, _ := cliStore(t)
+	out := filepath.Join(t.TempDir(), "booklet.pdf")
+	code := runBooklet([]string{
+		"--db", path, "--slug", "nowhere", "--rotate", "--out", out,
+		"--yes", "--skip-dns",
+	})
+	if code == exitOK {
+		t.Error("--rotate created a library instead of refusing")
+	}
+	if _, err := os.Stat(out); err == nil {
+		t.Error("--rotate wrote a PDF for a library that does not exist")
+	}
+}
+
+// The controller ruling for --rotate: it takes name, location and base URL
+// from the stored library rather than from flags, and refuses outright if
+// any of the three is passed rather than silently ignoring it — silently
+// ignoring --base-url would let a steward believe they had just corrected a
+// typo on the one artifact (the mounted sign) that a rerun cannot fix.
+func TestBookletRotateRefusesNameLocationOrBaseURL(t *testing.T) {
+	path, s, libs := cliStore(t, "fairview")
+	seedTokens(t, s, libs[0])
+
+	cases := []struct {
+		flag, value, wantWord string
+	}{
+		{"--name", "New Name", "name"},
+		{"--location", "New Location", "location"},
+		{"--base-url", "https://new.example.org", "base URL"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.wantWord, func(t *testing.T) {
+			out := filepath.Join(t.TempDir(), "booklet.pdf")
+			var code int
+			stderr := captureStderr(t, func() {
+				code = runBooklet([]string{
+					"--db", path, "--slug", "fairview", "--rotate",
+					tc.flag, tc.value, "--out", out,
+					"--yes", "--skip-dns",
+				})
+			})
+			if code != exitUsage {
+				t.Errorf("exit = %d, want %d", code, exitUsage)
+			}
+			want := "it cannot change its " + tc.wantWord + "."
+			if !strings.Contains(stderr, want) {
+				t.Errorf("stderr = %q, want it to contain %q", stderr, want)
+			}
+			if _, err := os.Stat(out); err == nil {
+				t.Error("a refused --rotate wrote a PDF")
+			}
+		})
+	}
+}
+
+// The --slug guard was added after review flagged it as an untested
+// branch: without it, --rotate with no --slug still refuses safely (the
+// empty slug simply resolves to no library), but the message read
+// `no library "" to rotate`, which names nothing useful to the steward.
+// This states directly what --rotate needs.
+func TestBookletRotateRequiresSlug(t *testing.T) {
+	path, s, libs := cliStore(t, "fairview")
+	seedTokens(t, s, libs[0])
+
+	out := filepath.Join(t.TempDir(), "booklet.pdf")
+	var code int
+	stderr := captureStderr(t, func() {
+		code = runBooklet([]string{
+			"--db", path, "--rotate", "--out", out,
+			"--yes", "--skip-dns",
+		})
+	})
+	if code != exitUsage {
+		t.Errorf("exit = %d, want %d", code, exitUsage)
+	}
+	if !strings.Contains(stderr, "--rotate requires --slug") {
+		t.Errorf("stderr = %q, want it to name the missing --slug", stderr)
+	}
+	if _, err := os.Stat(out); err == nil {
+		t.Error("--rotate with no --slug wrote a PDF")
+	}
+}
+
+// The warning printed before the rotate prompt has to name the cost in the
+// case that reads as harmless: with nothing ever scanned there is no card
+// in the door to keep, so all twelve printed cards become waste paper and
+// the box cannot be written to until a new one is carried to it.
+func TestRotateWarningNamesTheCostWhenNothingIsInTheDoor(t *testing.T) {
+	var pending []boulevard.Token
+	for i := 1; i <= tokens.PeriodCount; i++ {
+		pending = append(pending, boulevard.Token{PeriodIndex: i, State: boulevard.TokenPending})
+	}
+
+	var dark strings.Builder
+	printRotateWarning(&dark, "fairview", pending)
+	for _, want := range []string{"all 12 cards are replaced", "left or taken"} {
+		if !strings.Contains(dark.String(), want) {
+			t.Errorf("warning does not say %q:\n%s", want, dark.String())
+		}
+	}
+
+	pending[0].State = boulevard.TokenActive
+	var lit strings.Builder
+	printRotateWarning(&lit, "fairview", pending)
+	if !strings.Contains(lit.String(), "keeps working") {
+		t.Errorf("warning does not say the card in the door survives:\n%s", lit.String())
+	}
+	if strings.Contains(lit.String(), "left or taken") {
+		t.Errorf("warning claims the box goes dark while a card is in the door:\n%s", lit.String())
 	}
 }
 

@@ -112,12 +112,38 @@ CREATE TABLE IF NOT EXISTS steward_sessions (
 );
 `
 
+// addPrintedLabel is Milestone 4b's correction to itself.
+//
+// A card's month label was derived from valid_from — and force-activate
+// rewrites valid_from. So putting an October card in the door early made
+// every surface call it August, including the rotate confirmation that asks
+// whether to discard secrets while naming the card it will keep. DESIGN.md
+// §4 accepts that force-activate makes the printed card disagree with the
+// database, and its whole reason is that the month name is how a steward
+// identifies the card in their hand; deriving that name from a field the
+// operation rewrites destroys exactly what the tradeoff was protecting.
+//
+// valid_until is no refuge either: extend moves that one by design. Neither
+// endpoint survives both operations, so the printed label is stored once, at
+// mint, and never modified.
+//
+// Backfilling from valid_from is right for every database that predates this
+// column, because nothing before Milestone 4b could rewrite valid_from. A
+// database that already ran 4b's force-activate backfills the rewritten date
+// — the original is not recoverable — which is one more reason this landed
+// before the milestone shipped rather than after.
+const addPrintedLabel = `
+ALTER TABLE tokens ADD COLUMN printed_from TEXT NOT NULL DEFAULT '';
+UPDATE tokens SET printed_from = valid_from WHERE printed_from = '';
+`
+
 var migrations = []migration{
 	{1, schema},
 	{2, addLibrarySettings},
 	{3, createItems},
 	{4, addTakesAndShedReasons},
 	{5, addStewardCredential},
+	{6, addPrintedLabel},
 }
 
 // migrate applies every migration not yet recorded, each in its own

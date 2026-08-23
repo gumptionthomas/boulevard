@@ -10,6 +10,47 @@ import (
 	"github.com/gumptionthomas/boulevard/internal/boulevard"
 )
 
+// insertTokensTx writes a batch of tokens inside a transaction the caller
+// already opened. The tokens INSERT's column list must have exactly one
+// home: two copies of it in a table this milestone is actively changing is
+// how a column gets added to one and not the other, and that failure shows
+// up at runtime, not compile time. InsertTokens and RotatePendingTokens
+// share this loop; each keeps its own begin/commit bracket and its own
+// error wording around it, because "commit tokens" and "commit rotate" are
+// worth telling apart, but the SQL and the loop are not.
+func insertTokensTx(ctx context.Context, tx *sql.Tx, id boulevard.LibraryID, toks []boulevard.Token, now string) error {
+	stmt, err := tx.PrepareContext(ctx,
+		`INSERT INTO tokens (id, library_id, secret, period_index, valid_from, valid_until, state, first_seen_at, created_at, printed_from)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, NULL, ?, ?)`)
+	if err != nil {
+		return fmt.Errorf("prepare token insert: %w", err)
+	}
+	defer stmt.Close()
+
+	for _, tok := range toks {
+		if tok.LibraryID != id {
+			return fmt.Errorf("token %d belongs to library %q, not %q", tok.PeriodIndex, tok.LibraryID, id)
+		}
+		// At mint, the label a card is printed with IS its period, so a
+		// caller that says nothing means ValidFrom. Filling it here rather
+		// than requiring every caller to repeat itself is what keeps a
+		// forgotten field from becoming a card labelled "January 1" — the
+		// zero Date — which is the failure mode a stored label invites.
+		printed := tok.PrintedFrom
+		if printed.Year == 0 {
+			printed = tok.ValidFrom
+		}
+		if _, err := stmt.ExecContext(ctx,
+			tok.ID, string(id), tok.Secret, tok.PeriodIndex,
+			tok.ValidFrom.String(), tok.ValidUntil.String(), string(tok.State), now,
+			printed.String(),
+		); err != nil {
+			return fmt.Errorf("insert token for period %d: %w", tok.PeriodIndex, err)
+		}
+	}
+	return nil
+}
+
 // InsertTokens writes a whole booklet's worth of tokens in one transaction.
 // A partial booklet is never useful, so the batch is all-or-nothing.
 func (s *Store) InsertTokens(ctx context.Context, id boulevard.LibraryID, toks []boulevard.Token) error {
@@ -19,25 +60,8 @@ func (s *Store) InsertTokens(ctx context.Context, id boulevard.LibraryID, toks [
 	}
 	defer tx.Rollback()
 
-	stmt, err := tx.PrepareContext(ctx,
-		`INSERT INTO tokens (id, library_id, secret, period_index, valid_from, valid_until, state, first_seen_at, created_at)
-		 VALUES (?, ?, ?, ?, ?, ?, ?, NULL, ?)`)
-	if err != nil {
-		return fmt.Errorf("prepare token insert: %w", err)
-	}
-	defer stmt.Close()
-
-	now := time.Now().UTC().Format(time.RFC3339)
-	for _, tok := range toks {
-		if tok.LibraryID != id {
-			return fmt.Errorf("token %d belongs to library %q, not %q", tok.PeriodIndex, tok.LibraryID, id)
-		}
-		if _, err := stmt.ExecContext(ctx,
-			tok.ID, string(id), tok.Secret, tok.PeriodIndex,
-			tok.ValidFrom.String(), tok.ValidUntil.String(), string(tok.State), now,
-		); err != nil {
-			return fmt.Errorf("insert token for period %d: %w", tok.PeriodIndex, err)
-		}
+	if err := insertTokensTx(ctx, tx, id, toks, time.Now().UTC().Format(time.RFC3339)); err != nil {
+		return err
 	}
 	if err := tx.Commit(); err != nil {
 		return fmt.Errorf("commit tokens: %w", err)
@@ -47,7 +71,7 @@ func (s *Store) InsertTokens(ctx context.Context, id boulevard.LibraryID, toks [
 
 func (s *Store) TokensForLibrary(ctx context.Context, id boulevard.LibraryID) ([]boulevard.Token, error) {
 	rows, err := s.db.QueryContext(ctx,
-		`SELECT id, secret, period_index, valid_from, valid_until, state, first_seen_at
+		`SELECT id, secret, period_index, valid_from, valid_until, state, first_seen_at, printed_from
 		   FROM tokens WHERE library_id = ? ORDER BY period_index`, string(id))
 	if err != nil {
 		return nil, fmt.Errorf("list tokens for library %q: %w", id, err)
@@ -57,12 +81,12 @@ func (s *Store) TokensForLibrary(ctx context.Context, id boulevard.LibraryID) ([
 	var out []boulevard.Token
 	for rows.Next() {
 		var (
-			tok       boulevard.Token
-			from, til string
-			state     string
-			seen      *string
+			tok            boulevard.Token
+			from, til      string
+			state, printed string
+			seen           *string
 		)
-		if err := rows.Scan(&tok.ID, &tok.Secret, &tok.PeriodIndex, &from, &til, &state, &seen); err != nil {
+		if err := rows.Scan(&tok.ID, &tok.Secret, &tok.PeriodIndex, &from, &til, &state, &seen, &printed); err != nil {
 			return nil, fmt.Errorf("scan token: %w", err)
 		}
 		if tok.ValidFrom, err = boulevard.ParseDate(from); err != nil {
@@ -70,6 +94,9 @@ func (s *Store) TokensForLibrary(ctx context.Context, id boulevard.LibraryID) ([
 		}
 		if tok.ValidUntil, err = boulevard.ParseDate(til); err != nil {
 			return nil, fmt.Errorf("token %s valid_until: %w", tok.ID, err)
+		}
+		if tok.PrintedFrom, err = boulevard.ParseDate(printed); err != nil {
+			return nil, fmt.Errorf("token %s printed_from: %w", tok.ID, err)
 		}
 		tok.LibraryID = id
 		tok.State = boulevard.TokenState(state)
@@ -93,16 +120,16 @@ func (s *Store) TokensForLibrary(ctx context.Context, id boulevard.LibraryID) ([
 // like LibraryBySlug. Everything downstream stays library-scoped.
 func (s *Store) TokenBySecret(ctx context.Context, secret string) (boulevard.Token, error) {
 	var (
-		tok       boulevard.Token
-		libID     string
-		from, til string
-		state     string
-		seen      *string
+		tok            boulevard.Token
+		libID          string
+		from, til      string
+		state, printed string
+		seen           *string
 	)
 	err := s.db.QueryRowContext(ctx,
-		`SELECT id, library_id, secret, period_index, valid_from, valid_until, state, first_seen_at
+		`SELECT id, library_id, secret, period_index, valid_from, valid_until, state, first_seen_at, printed_from
 		   FROM tokens WHERE secret = ?`, secret).
-		Scan(&tok.ID, &libID, &tok.Secret, &tok.PeriodIndex, &from, &til, &state, &seen)
+		Scan(&tok.ID, &libID, &tok.Secret, &tok.PeriodIndex, &from, &til, &state, &seen, &printed)
 	if errors.Is(err, sql.ErrNoRows) {
 		return boulevard.Token{}, fmt.Errorf("token by secret: %w", ErrNotFound)
 	}
@@ -117,6 +144,9 @@ func (s *Store) TokenBySecret(ctx context.Context, secret string) (boulevard.Tok
 	}
 	if tok.ValidUntil, err = boulevard.ParseDate(til); err != nil {
 		return boulevard.Token{}, fmt.Errorf("token %s valid_until: %w", tok.ID, err)
+	}
+	if tok.PrintedFrom, err = boulevard.ParseDate(printed); err != nil {
+		return boulevard.Token{}, fmt.Errorf("token %s printed_from: %w", tok.ID, err)
 	}
 	if seen != nil {
 		t, err := time.Parse(time.RFC3339, *seen)
@@ -164,10 +194,11 @@ func (s *Store) RecordScan(ctx context.Context, id boulevard.LibraryID, tok boul
 	switch {
 	case errors.Is(err, sql.ErrNoRows):
 		// Nothing active yet, so any token may take the slot. 0 works as
-		// the sentinel only because period_index is 1-based (DESIGN.md §4:
-		// "period_index INT -- 1..12"), which makes every real card strictly
-		// greater than it. A 0-based index would silently refuse to activate
-		// the first card of a booklet.
+		// the sentinel only because period_index is 1-based — the first
+		// booklet numbers 1..12 and every rotation continues upward from
+		// there (DESIGN.md §6), so no real card is ever 0 or below. A
+		// 0-based index would silently refuse to activate the first card of
+		// a booklet.
 		activePeriod = 0
 	case err != nil:
 		return fmt.Errorf("find active token for %q: %w", id, err)
@@ -188,6 +219,197 @@ func (s *Store) RecordScan(ctx context.Context, id boulevard.LibraryID, tok boul
 
 	if err := tx.Commit(); err != nil {
 		return fmt.Errorf("commit record scan: %w", err)
+	}
+	return nil
+}
+
+// ForceActivateToken promotes a pending card, for the steward who swapped
+// the card early (DESIGN.md §4).
+//
+// It moves valid_from to today, and that is the whole point rather than a
+// side effect. tokens.Validate reads state only for "revoked"; everything
+// else is the date window. Setting state = active on a card whose period
+// has not started leaves it answering NotYet — the command would report
+// success and change nothing a scanner can see. Inside the 7-day grace the
+// command is redundant anyway, because the card already scans, so the only
+// case that reaches here is one where a date has to move.
+//
+// valid_until is deliberately not moved: the card ends when it was always
+// going to end. The printed card will now disagree with the database, which
+// is accepted — the steward has physically put that card in the door, and
+// the month name is how they identify it.
+func (s *Store) ForceActivateToken(ctx context.Context, id boulevard.LibraryID, periodIndex int, today boulevard.Date) error {
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("begin force-activate: %w", err)
+	}
+	defer tx.Rollback()
+
+	var state string
+	err = tx.QueryRowContext(ctx,
+		`SELECT state FROM tokens WHERE library_id = ? AND period_index = ?`,
+		string(id), periodIndex).Scan(&state)
+	if errors.Is(err, sql.ErrNoRows) {
+		return ErrNotFound
+	}
+	if err != nil {
+		return fmt.Errorf("read token for period %d: %w", periodIndex, err)
+	}
+	if boulevard.TokenState(state) != boulevard.TokenPending {
+		return fmt.Errorf("period %d is %s: %w", periodIndex, state, ErrNotPending)
+	}
+
+	if _, err := tx.ExecContext(ctx,
+		`UPDATE tokens SET state = ? WHERE library_id = ? AND state = ?`,
+		string(boulevard.TokenExpired), string(id), string(boulevard.TokenActive)); err != nil {
+		return fmt.Errorf("expire the previous active token: %w", err)
+	}
+	if _, err := tx.ExecContext(ctx,
+		`UPDATE tokens SET state = ?, valid_from = ? WHERE library_id = ? AND period_index = ?`,
+		string(boulevard.TokenActive), today.String(), string(id), periodIndex); err != nil {
+		return fmt.Errorf("activate period %d: %w", periodIndex, err)
+	}
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("commit force-activate: %w", err)
+	}
+	return nil
+}
+
+// ExtendToken pushes the active card's end date to the last day of the
+// month after the one it currently ends in, and returns that date so the
+// caller can name it. For the steward whose booklet is lost and whose
+// replacement is not printed yet (DESIGN.md §4).
+//
+// Later periods are deliberately untouched. Cascading the shift would keep
+// exactly one card valid at a time but would make every unswapped printed
+// card disagree with the database — the card reading "September" would
+// carry October's period. Two cards valid at once is the smaller problem,
+// and one this design already accepts: the 7-day grace on both ends means
+// adjacent cards overlap by fourteen days regardless.
+func (s *Store) ExtendToken(ctx context.Context, id boulevard.LibraryID, periodIndex int) (boulevard.Date, error) {
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return boulevard.Date{}, fmt.Errorf("begin extend: %w", err)
+	}
+	defer tx.Rollback()
+
+	var state, until string
+	err = tx.QueryRowContext(ctx,
+		`SELECT state, valid_until FROM tokens WHERE library_id = ? AND period_index = ?`,
+		string(id), periodIndex).Scan(&state, &until)
+	if errors.Is(err, sql.ErrNoRows) {
+		return boulevard.Date{}, ErrNotFound
+	}
+	if err != nil {
+		return boulevard.Date{}, fmt.Errorf("read token for period %d: %w", periodIndex, err)
+	}
+	if boulevard.TokenState(state) != boulevard.TokenActive {
+		return boulevard.Date{}, fmt.Errorf("period %d is %s: %w", periodIndex, state, ErrNotActive)
+	}
+
+	cur, err := boulevard.ParseDate(until)
+	if err != nil {
+		return boulevard.Date{}, fmt.Errorf("parse valid_until %q: %w", until, err)
+	}
+	next := cur.NextMonth().LastOfMonth()
+
+	if _, err := tx.ExecContext(ctx,
+		`UPDATE tokens SET valid_until = ? WHERE library_id = ? AND period_index = ?`,
+		next.String(), string(id), periodIndex); err != nil {
+		return boulevard.Date{}, fmt.Errorf("extend period %d: %w", periodIndex, err)
+	}
+	if err := tx.Commit(); err != nil {
+		return boulevard.Date{}, fmt.Errorf("commit extend: %w", err)
+	}
+	return next, nil
+}
+
+// RevokeToken burns one card's secret, for a sheet that was stolen or
+// photographed (DESIGN.md §4). "revoked" is the one state tokens.Validate
+// reads, and §4 requires a revoked secret to produce a response
+// byte-identical to an unknown one — already true, and pinned by
+// TestScanRevokedIsIndistinguishableFromUnknown.
+//
+// There is no un-revoke. The way forward is force-activating the next card
+// or rotating.
+func (s *Store) RevokeToken(ctx context.Context, id boulevard.LibraryID, periodIndex int) error {
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("begin revoke: %w", err)
+	}
+	defer tx.Rollback()
+
+	var state string
+	err = tx.QueryRowContext(ctx,
+		`SELECT state FROM tokens WHERE library_id = ? AND period_index = ?`,
+		string(id), periodIndex).Scan(&state)
+	if errors.Is(err, sql.ErrNoRows) {
+		return ErrNotFound
+	}
+	if err != nil {
+		return fmt.Errorf("read token for period %d: %w", periodIndex, err)
+	}
+	if boulevard.TokenState(state) == boulevard.TokenRevoked {
+		return ErrAlreadyRevoked
+	}
+
+	if _, err := tx.ExecContext(ctx,
+		`UPDATE tokens SET state = ? WHERE library_id = ? AND period_index = ?`,
+		string(boulevard.TokenRevoked), string(id), periodIndex); err != nil {
+		return fmt.Errorf("revoke period %d: %w", periodIndex, err)
+	}
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("commit revoke: %w", err)
+	}
+	return nil
+}
+
+// RotatePendingTokens discards every unprinted card and inserts a fresh
+// booklet in one transaction. The caller mints the secrets and the ids and
+// computes the periods (tokens.PlanRotation plus tokens.Periods) — the same
+// split InsertTokens already uses, which keeps randomness injectable and
+// the period arithmetic unit-testable without a database.
+//
+// Every pending card's secret is discarded, but a seen one is revoked
+// rather than deleted, and that split is load-bearing. A pending card *can*
+// have granted a session: RecordScan marks a card active only when its
+// index exceeds the current active one, so a lower card scanned inside its
+// own window stamps first_seen_at, hands out a session, and stays pending —
+// the stray-card-found-in-a-drawer case DESIGN.md §4 describes, reached the
+// moment a steward force-activates a later card. sessions.token_id is NOT
+// NULL REFERENCES tokens(id) with foreign keys on, so deleting that row
+// fails the constraint and rotation refuses — with the sheet photographed
+// and rotation the very thing being reached for, and no retry helping until
+// the session is swept.
+//
+// "revoked" says exactly the right thing about a discarded secret: it is
+// the one state tokens.Validate refuses on, so the card stops working the
+// moment this commits, while the row stays to hold its session's foreign
+// key and that session expires on its own.
+func (s *Store) RotatePendingTokens(ctx context.Context, id boulevard.LibraryID, toks []boulevard.Token) error {
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("begin rotate: %w", err)
+	}
+	defer tx.Rollback()
+
+	if _, err := tx.ExecContext(ctx,
+		`UPDATE tokens SET state = ? WHERE library_id = ? AND state = ? AND first_seen_at IS NOT NULL`,
+		string(boulevard.TokenRevoked), string(id), string(boulevard.TokenPending)); err != nil {
+		return fmt.Errorf("revoke seen pending tokens: %w", err)
+	}
+
+	if _, err := tx.ExecContext(ctx,
+		`DELETE FROM tokens WHERE library_id = ? AND state = ?`,
+		string(id), string(boulevard.TokenPending)); err != nil {
+		return fmt.Errorf("discard pending tokens: %w", err)
+	}
+
+	if err := insertTokensTx(ctx, tx, id, toks, time.Now().UTC().Format(time.RFC3339)); err != nil {
+		return err
+	}
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("commit rotate: %w", err)
 	}
 	return nil
 }

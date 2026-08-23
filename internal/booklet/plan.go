@@ -61,7 +61,7 @@ func BuildPlan(in Input) (Plan, error) {
 
 	sheet1 := Sheet{Cards: make([]PlacedCard, 0, CardsPerSheet)}
 	for i := 0; i < CardsPerSheet; i++ {
-		sheet1.Cards = append(sheet1.Cards, placeCard(toks[i], CardRect(i), in.Library.BaseURL, len(toks)))
+		sheet1.Cards = append(sheet1.Cards, placeCard(toks[i], CardRect(i), in.Library.BaseURL, i+1, len(toks)))
 	}
 
 	// Sheet 2: the cover fills rows 1..4, the remaining cards sit in row 5.
@@ -79,23 +79,24 @@ func BuildPlan(in Input) (Plan, error) {
 	}
 	for i := CardsPerSheet; i < len(toks); i++ {
 		slot := CardsPerSheet - Cols + (i - CardsPerSheet) // final row of the grid
-		sheet2.Cards = append(sheet2.Cards, placeCard(toks[i], CardRect(slot), in.Library.BaseURL, len(toks)))
+		sheet2.Cards = append(sheet2.Cards, placeCard(toks[i], CardRect(slot), in.Library.BaseURL, i+1, len(toks)))
 	}
 
 	return Plan{Sheets: []Sheet{sheet1, sheet2}}, nil
 }
 
-// placeCard positions one token's card. "of" is the size of the booklet
-// actually being laid out, not the constant, so a booklet of some other
-// length can never print "CARD 13 OF 12".
-func placeCard(tok boulevard.Token, r Rect, baseURL string, of int) PlacedCard {
+// placeCard positions one token's card. "number" is the card's position in
+// the booklet being laid out and "of" is that booklet's size — neither is
+// read from the token, so a second booklet (whose period indices continue
+// at 13) still prints CARD 1 OF 12 rather than CARD 13 OF 12.
+func placeCard(tok boulevard.Token, r Rect, baseURL string, number, of int) PlacedCard {
 	return PlacedCard{
 		Rect:    r,
-		Month:   tok.ValidFrom.MonthName(),
-		Year:    tok.ValidFrom.Year,
+		Month:   tok.PrintedFrom.MonthName(),
+		Year:    tok.PrintedFrom.Year,
 		From:    tok.ValidFrom,
 		Until:   tok.ValidUntil,
-		Index:   tok.PeriodIndex,
+		Index:   number,
 		Of:      of,
 		Payload: baseURL + "/s/" + tok.Secret,
 	}

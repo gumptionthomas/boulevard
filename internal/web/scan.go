@@ -4,7 +4,6 @@ import (
 	"crypto/rand"
 	"errors"
 	"net/http"
-	"strconv"
 	"strings"
 	"time"
 
@@ -114,9 +113,11 @@ func (s *Server) renderNotYet(w http.ResponseWriter, r *http.Request, tok boulev
 
 // cardLabel names the card the way it is printed on the card itself —
 // "August 2026". Restating it leaks nothing: it is in the reader's hand.
-func cardLabel(tok boulevard.Token) string {
-	return tok.ValidFrom.MonthName() + " " + strconv.Itoa(tok.ValidFrom.Year)
-}
+//
+// It reads PrintedFrom rather than ValidFrom because force-activate rewrites
+// ValidFrom, and a page whose job is to tell someone which card they are
+// holding must not rename it.
+func cardLabel(tok boulevard.Token) string { return tok.Label() }
 
 func (s *Server) grant(w http.ResponseWriter, r *http.Request, tok boulevard.Token, now time.Time) {
 	lib, ok := s.libraryForToken(w, r, tok)

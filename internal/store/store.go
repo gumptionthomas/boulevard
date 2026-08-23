@@ -88,6 +88,15 @@ var ErrNotShed = errors.New("item is not in the shed")
 // pins, never to evict one: a pin is the steward saying "this stays".
 var ErrAllPinned = errors.New("every item on the shelf is pinned")
 
+// ErrNotActive is returned when an operation that only makes sense on the
+// card currently in the door is aimed at a different one.
+var ErrNotActive = errors.New("token is not the active card")
+
+// ErrAlreadyRevoked distinguishes "nothing to do" from a refusal a steward
+// should act on. Revoking is irreversible, so saying so is kinder than
+// silently succeeding twice.
+var ErrAlreadyRevoked = errors.New("token is already revoked")
+
 // ErrNotShelved distinguishes "no such item" from "that item is not on
 // the shelf", the way ErrNotPending and ErrNotShed already do for the
 // queue and the shed.

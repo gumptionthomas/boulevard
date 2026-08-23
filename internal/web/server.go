@@ -32,6 +32,8 @@ var pageTemplates = []string{
 	"leave.html", "left.html", "item.html",
 	"steward-login.html", "steward-hub.html", "steward-queue.html",
 	"steward-shelf.html", "steward-shed.html", "steward-settings.html",
+	"steward-tokens.html", "steward-export.html",
+	"steward-confirm-revoke.html", "steward-confirm-rotate.html",
 }
 
 // New builds a server. `now` is injected so handler tests can sit on an
