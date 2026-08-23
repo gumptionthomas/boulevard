@@ -92,8 +92,8 @@ func BuildPlan(in Input) (Plan, error) {
 func placeCard(tok boulevard.Token, r Rect, baseURL string, number, of int) PlacedCard {
 	return PlacedCard{
 		Rect:    r,
-		Month:   tok.ValidFrom.MonthName(),
-		Year:    tok.ValidFrom.Year,
+		Month:   tok.PrintedFrom.MonthName(),
+		Year:    tok.PrintedFrom.Year,
 		From:    tok.ValidFrom,
 		Until:   tok.ValidUntil,
 		Index:   number,

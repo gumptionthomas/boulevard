@@ -5,6 +5,7 @@ import (
 	"crypto/rand"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -199,4 +200,57 @@ func insertExportItem(t *testing.T, s *Store, lib boulevard.Library, note string
 		t.Fatal(err)
 	}
 	return id
+}
+
+// Every column of an exported table must be in its column list.
+//
+// This is the guard for the failure the final whole-branch review named as
+// its top risk and that landed within the hour: adding printed_from to
+// tokens left exportedTables behind, and an export silently stopped carrying
+// a column. It surfaced loudly here only because printed_from is NOT NULL
+// and a Date refuses to parse from "" — a nullable or plain-text column
+// would have been dropped from every export with nothing to notice.
+//
+// Reading the live schema rather than a second hardcoded list is the whole
+// point: a list maintained by hand is exactly what already drifted.
+func TestExportCarriesEveryColumnOfEveryExportedTable(t *testing.T) {
+	ctx, s := context.Background(), openTemp(t)
+
+	for _, tbl := range exportedTables {
+		listed := map[string]bool{}
+		for _, c := range strings.Split(tbl.columns, ",") {
+			listed[strings.TrimSpace(c)] = true
+		}
+
+		rows, err := s.db.QueryContext(ctx, `SELECT name FROM pragma_table_info(?)`, tbl.name)
+		if err != nil {
+			t.Fatalf("read schema of %s: %v", tbl.name, err)
+		}
+		var actual []string
+		for rows.Next() {
+			var name string
+			if err := rows.Scan(&name); err != nil {
+				rows.Close()
+				t.Fatalf("scan column of %s: %v", tbl.name, err)
+			}
+			actual = append(actual, name)
+		}
+		rows.Close()
+		if err := rows.Err(); err != nil {
+			t.Fatalf("iterate columns of %s: %v", tbl.name, err)
+		}
+		if len(actual) == 0 {
+			t.Fatalf("%s has no columns; is the table name wrong?", tbl.name)
+		}
+
+		for _, name := range actual {
+			if !listed[name] {
+				t.Errorf("%s.%s exists in the schema but is missing from exportedTables — "+
+					"every export would silently drop it", tbl.name, name)
+			}
+		}
+		if len(listed) != len(actual) {
+			t.Errorf("%s lists %d columns, schema has %d", tbl.name, len(listed), len(actual))
+		}
+	}
 }

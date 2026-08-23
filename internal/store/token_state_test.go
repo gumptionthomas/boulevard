@@ -322,3 +322,72 @@ func buildRotation(t *testing.T, libID boulevard.LibraryID, rot tokens.Rotation)
 	}
 	return out
 }
+
+// The month a card is identified by must survive every operation that
+// rewrites its dates.
+//
+// This is the defect the Milestone 4b acceptance run found: force-activate
+// rewrites valid_from, the month label was derived from valid_from, and so
+// putting an October card in the door early made the desk call it August —
+// including on the confirmation that asks whether to discard secrets while
+// naming the card it will keep. DESIGN.md §4 accepts the date divergence
+// precisely because the month name keeps the card in the steward's hand
+// identifiable, so the label has to come from somewhere neither
+// force-activate nor extend touches.
+func TestPrintedLabelSurvivesForceActivateAndExtend(t *testing.T) {
+	ctx, s := context.Background(), openTemp(t)
+	lib, _ := seededLibrary(t, s)
+
+	// Period 3 is October 2026 in seededLibrary's fixture.
+	printed := stateOf(t, s, lib, 3).PrintedFrom
+	if printed.Month != time.October {
+		t.Fatalf("fixture: period 3 prints as %s, want October", printed.Month)
+	}
+
+	if err := s.ForceActivateToken(ctx, lib.ID, 3, boulevard.NewDate(2026, time.August, 20)); err != nil {
+		t.Fatalf("ForceActivateToken: %v", err)
+	}
+	after := stateOf(t, s, lib, 3)
+	if !after.ValidFrom.Equal(boulevard.NewDate(2026, time.August, 20)) {
+		t.Fatalf("force-activate did not move valid_from: %s", after.ValidFrom)
+	}
+	if !after.PrintedFrom.Equal(printed) {
+		t.Errorf("printed label moved to %s; the card in the steward's hand still says %s",
+			after.PrintedFrom, printed)
+	}
+
+	if _, err := s.ExtendToken(ctx, lib.ID, 3); err != nil {
+		t.Fatalf("ExtendToken: %v", err)
+	}
+	if got := stateOf(t, s, lib, 3).PrintedFrom; !got.Equal(printed) {
+		t.Errorf("extend moved the printed label to %s, want %s", got, printed)
+	}
+}
+
+// Rotation mints cards that have never been printed, so their label is
+// simply their own period — but it must be recorded, not left blank, or the
+// first force-activate on the new booklet reintroduces the defect.
+func TestRotatedCardsRecordTheirPrintedLabel(t *testing.T) {
+	ctx, s := context.Background(), openTemp(t)
+	lib, _ := seededLibrary(t, s)
+
+	existing, err := s.TokensForLibrary(ctx, lib.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	rot := tokens.PlanRotation(existing, boulevard.NewDate(2026, time.August, 20))
+	if err := s.RotatePendingTokens(ctx, lib.ID, buildRotation(t, lib.ID, rot)); err != nil {
+		t.Fatalf("RotatePendingTokens: %v", err)
+	}
+
+	for i := rot.StartIndex; i < rot.StartIndex+tokens.PeriodCount; i++ {
+		tok := stateOf(t, s, lib, i)
+		if tok.PrintedFrom.Year == 0 {
+			t.Fatalf("period %d has no printed label", i)
+		}
+		if !tok.PrintedFrom.Equal(tok.ValidFrom) {
+			t.Errorf("period %d prints as %s but starts %s; a freshly minted card should match",
+				i, tok.PrintedFrom, tok.ValidFrom)
+		}
+	}
+}

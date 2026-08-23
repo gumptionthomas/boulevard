@@ -20,8 +20,8 @@ import (
 // worth telling apart, but the SQL and the loop are not.
 func insertTokensTx(ctx context.Context, tx *sql.Tx, id boulevard.LibraryID, toks []boulevard.Token, now string) error {
 	stmt, err := tx.PrepareContext(ctx,
-		`INSERT INTO tokens (id, library_id, secret, period_index, valid_from, valid_until, state, first_seen_at, created_at)
-		 VALUES (?, ?, ?, ?, ?, ?, ?, NULL, ?)`)
+		`INSERT INTO tokens (id, library_id, secret, period_index, valid_from, valid_until, state, first_seen_at, created_at, printed_from)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, NULL, ?, ?)`)
 	if err != nil {
 		return fmt.Errorf("prepare token insert: %w", err)
 	}
@@ -31,9 +31,19 @@ func insertTokensTx(ctx context.Context, tx *sql.Tx, id boulevard.LibraryID, tok
 		if tok.LibraryID != id {
 			return fmt.Errorf("token %d belongs to library %q, not %q", tok.PeriodIndex, tok.LibraryID, id)
 		}
+		// At mint, the label a card is printed with IS its period, so a
+		// caller that says nothing means ValidFrom. Filling it here rather
+		// than requiring every caller to repeat itself is what keeps a
+		// forgotten field from becoming a card labelled "January 1" — the
+		// zero Date — which is the failure mode a stored label invites.
+		printed := tok.PrintedFrom
+		if printed.Year == 0 {
+			printed = tok.ValidFrom
+		}
 		if _, err := stmt.ExecContext(ctx,
 			tok.ID, string(id), tok.Secret, tok.PeriodIndex,
 			tok.ValidFrom.String(), tok.ValidUntil.String(), string(tok.State), now,
+			printed.String(),
 		); err != nil {
 			return fmt.Errorf("insert token for period %d: %w", tok.PeriodIndex, err)
 		}
@@ -61,7 +71,7 @@ func (s *Store) InsertTokens(ctx context.Context, id boulevard.LibraryID, toks [
 
 func (s *Store) TokensForLibrary(ctx context.Context, id boulevard.LibraryID) ([]boulevard.Token, error) {
 	rows, err := s.db.QueryContext(ctx,
-		`SELECT id, secret, period_index, valid_from, valid_until, state, first_seen_at
+		`SELECT id, secret, period_index, valid_from, valid_until, state, first_seen_at, printed_from
 		   FROM tokens WHERE library_id = ? ORDER BY period_index`, string(id))
 	if err != nil {
 		return nil, fmt.Errorf("list tokens for library %q: %w", id, err)
@@ -71,12 +81,12 @@ func (s *Store) TokensForLibrary(ctx context.Context, id boulevard.LibraryID) ([
 	var out []boulevard.Token
 	for rows.Next() {
 		var (
-			tok       boulevard.Token
-			from, til string
-			state     string
-			seen      *string
+			tok            boulevard.Token
+			from, til      string
+			state, printed string
+			seen           *string
 		)
-		if err := rows.Scan(&tok.ID, &tok.Secret, &tok.PeriodIndex, &from, &til, &state, &seen); err != nil {
+		if err := rows.Scan(&tok.ID, &tok.Secret, &tok.PeriodIndex, &from, &til, &state, &seen, &printed); err != nil {
 			return nil, fmt.Errorf("scan token: %w", err)
 		}
 		if tok.ValidFrom, err = boulevard.ParseDate(from); err != nil {
@@ -84,6 +94,9 @@ func (s *Store) TokensForLibrary(ctx context.Context, id boulevard.LibraryID) ([
 		}
 		if tok.ValidUntil, err = boulevard.ParseDate(til); err != nil {
 			return nil, fmt.Errorf("token %s valid_until: %w", tok.ID, err)
+		}
+		if tok.PrintedFrom, err = boulevard.ParseDate(printed); err != nil {
+			return nil, fmt.Errorf("token %s printed_from: %w", tok.ID, err)
 		}
 		tok.LibraryID = id
 		tok.State = boulevard.TokenState(state)
@@ -107,16 +120,16 @@ func (s *Store) TokensForLibrary(ctx context.Context, id boulevard.LibraryID) ([
 // like LibraryBySlug. Everything downstream stays library-scoped.
 func (s *Store) TokenBySecret(ctx context.Context, secret string) (boulevard.Token, error) {
 	var (
-		tok       boulevard.Token
-		libID     string
-		from, til string
-		state     string
-		seen      *string
+		tok            boulevard.Token
+		libID          string
+		from, til      string
+		state, printed string
+		seen           *string
 	)
 	err := s.db.QueryRowContext(ctx,
-		`SELECT id, library_id, secret, period_index, valid_from, valid_until, state, first_seen_at
+		`SELECT id, library_id, secret, period_index, valid_from, valid_until, state, first_seen_at, printed_from
 		   FROM tokens WHERE secret = ?`, secret).
-		Scan(&tok.ID, &libID, &tok.Secret, &tok.PeriodIndex, &from, &til, &state, &seen)
+		Scan(&tok.ID, &libID, &tok.Secret, &tok.PeriodIndex, &from, &til, &state, &seen, &printed)
 	if errors.Is(err, sql.ErrNoRows) {
 		return boulevard.Token{}, fmt.Errorf("token by secret: %w", ErrNotFound)
 	}
@@ -131,6 +144,9 @@ func (s *Store) TokenBySecret(ctx context.Context, secret string) (boulevard.Tok
 	}
 	if tok.ValidUntil, err = boulevard.ParseDate(til); err != nil {
 		return boulevard.Token{}, fmt.Errorf("token %s valid_until: %w", tok.ID, err)
+	}
+	if tok.PrintedFrom, err = boulevard.ParseDate(printed); err != nil {
+		return boulevard.Token{}, fmt.Errorf("token %s printed_from: %w", tok.ID, err)
 	}
 	if seen != nil {
 		t, err := time.Parse(time.RFC3339, *seen)

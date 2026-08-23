@@ -38,7 +38,7 @@ func inputFrom(t *testing.T, entropy io.Reader) Input {
 		}
 		toks = append(toks, boulevard.Token{
 			LibraryID: id, Secret: secret, PeriodIndex: p.Index,
-			ValidFrom: p.From, ValidUntil: p.Until, State: boulevard.TokenPending,
+			ValidFrom: p.From, ValidUntil: p.Until, PrintedFrom: p.From, State: boulevard.TokenPending,
 		})
 	}
 	return Input{
@@ -213,6 +213,7 @@ func TestCardNumbersComeFromPositionNotPeriodIndex(t *testing.T) {
 			PeriodIndex: p.Index + 12, // 13..24, as after one rotation
 			ValidFrom:   p.From,
 			ValidUntil:  p.Until,
+			PrintedFrom: p.From,
 		})
 	}
 

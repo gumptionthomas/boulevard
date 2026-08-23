@@ -415,3 +415,36 @@ func seedWebTokens(t *testing.T, st *store.Store, lib boulevard.Library) []boule
 	}
 	return out
 }
+
+// The desk must go on calling a card by the month printed on it after
+// force-activate has moved its dates.
+//
+// Found by the Milestone 4b acceptance run: an October card put in the door
+// early showed as "August 2026" on the tokens page, so the row and the card
+// in the steward's hand could not be matched. Worse, the rotate confirmation
+// named that wrong month while asking whether to discard secrets — a page
+// whose only job is to say which card survives.
+func TestTokensPageKeepsThePrintedMonthAfterForceActivate(t *testing.T) {
+	st, lib, key := stewardServer(t)
+	seedWebTokens(t, st, lib)
+	now := time.Date(2026, time.August, 20, 12, 0, 0, 0, time.UTC)
+	h := New(st, func() time.Time { return now }).Handler()
+	c := loginAsSteward(t, h, lib, key)
+
+	// Period 3 is October 2026 in seedWebTokens' fixture.
+	if rec := postForm(t, h, "/b/"+lib.Slug+"/steward/tokens/3/force-activate", nil, c); rec.Code != http.StatusSeeOther {
+		t.Fatalf("force-activate: status = %d, want 303", rec.Code)
+	}
+
+	body := getWithCookie(t, h, "/b/"+lib.Slug+"/steward/tokens", c).Body.String()
+	if !strings.Contains(body, "October 2026") {
+		t.Errorf("the tokens page no longer calls the card October 2026:\n%s", body)
+	}
+
+	// And the confirmation that asks about discarding secrets must name the
+	// same card the steward is holding.
+	confirm := getWithCookie(t, h, "/b/"+lib.Slug+"/steward/tokens/rotate/confirm", c).Body.String()
+	if !strings.Contains(confirm, "October 2026") {
+		t.Errorf("the rotate confirmation misnames the card in the door:\n%s", confirm)
+	}
+}

@@ -29,7 +29,7 @@ var exportedTables = []struct {
 	where   string
 }{
 	{"libraries", "id, slug, name, location_label, base_url, created_at, slots, max_age_days, default_copies, approval_required, steward_contact, steward_key_hash", "id = ?"},
-	{"tokens", "id, library_id, secret, period_index, valid_from, valid_until, state, first_seen_at, created_at", "library_id = ?"},
+	{"tokens", "id, library_id, secret, period_index, valid_from, valid_until, state, first_seen_at, created_at, printed_from", "library_id = ?"},
 	{"items", "id, library_id, type, payload, note, attribution, copies_total, copies_left, state, pinned, views, takes, left_at, shelved_at, created_at, shed_at, shed_reason", "library_id = ?"},
 }
 

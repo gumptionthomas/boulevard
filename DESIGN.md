@@ -130,9 +130,12 @@ tokens
   period_index    INT   -- 1..12 in the first booklet; monotonic across rotations (§6)
   valid_from      DATE
   valid_until     DATE
+  printed_from    DATE  -- the period as minted; names the card, never modified
   state           TEXT  -- pending | active | expired | revoked
   first_seen_at   TIMESTAMP NULL
 ```
+
+**`printed_from` is what names a card**, and it is stored rather than derived because neither endpoint survives the steward overrides below. Force-activate rewrites `valid_from`, so deriving the label from it made an October card show up everywhere as August the moment it went into the door early — including on the confirmation that asks whether to discard secrets while naming the card it will keep. `valid_until` is no refuge: extend moves that one. The label is set once, at mint, and never modified; the dates beside it move freely. This is the field the paragraph below depends on when it says the divergence is acceptable.
 
 **Do not derive codes from a time function (TOTP-style).** Server clock drift, DST, and a steward who swaps the card four days late all become silent auth failures with no recovery path. Explicit stored periods make every failure inspectable and fixable.
 
@@ -145,6 +148,8 @@ tokens
 5. On first valid scan, set `first_seen_at`. Mark the token `active` **only if its period is later than the current active token's**, expiring the previous active token when it is. A token older than the current active one still grants a session and still records `first_seen_at`, but does not become active — otherwise a stray card found in a drawer could rewind the steward's sense of which card is in the door.
 
 **Steward overrides:** force-activate any pending card (swapped early), extend the current card (booklet lost, replacement not printed yet), revoke a card (sheet stolen or photographed). Force-activate works by moving `valid_from` to today, not by writing `state` alone — validation above reads `state` only for `revoked`, so a card whose period has not started would still answer `NotYet` no matter what `state` says.
+
+The printed card then disagrees with the database: a card reading "Oct 1 – Oct 31" will have a period starting today. That is accepted rather than fixed, because the steward has physically put that card in the door and the month name is how they identify it — which is exactly why the name comes from `printed_from` and not from a field these overrides rewrite. A steward holding the October card must find a row saying October, whatever its dates now read.
 
 **Reprinting.** Secrets are stored in plaintext so the booklet can be regenerated at any time. This is a deliberate trade: the threat model is a steward's own server, and if that server is compromised the shelf is already lost. The alternative — hashed secrets — makes a lost booklet unrecoverable, which is a far more likely event than server compromise. Reprint regenerates the PDF for the newest booklet's twelve cards, whatever state each is in — a booklet is a physical sheet, and a reprint has to reproduce the sheet the steward is holding, including the card already in the door. It is selection by booklet, not by state: after a rotation the surviving active card belongs to the *older* booklet and is deliberately not on the reprint, because it is already taped inside the box.
 
