@@ -114,8 +114,8 @@ func TestResolveLibraryWarnsOnBaseURLChangeButProceeds(t *testing.T) {
 	if lib.BaseURL != "https://new.example.org" {
 		t.Errorf("BaseURL = %q, want the new value", lib.BaseURL)
 	}
-	if !strings.Contains(strings.ToLower(warn.String()), "browse sign") {
-		t.Errorf("expected a loud warning about the permanent browse sign, got %q", warn.String())
+	if !strings.Contains(strings.ToLower(warn.String()), "shelf code") {
+		t.Errorf("expected a loud warning about the permanent shelf code, got %q", warn.String())
 	}
 }
 

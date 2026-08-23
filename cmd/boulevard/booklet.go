@@ -487,7 +487,7 @@ func checkDNS(host string) error {
 // side ejects cleanly, the screwed-to-the-box artifact does not.
 func warnBaseURLChange(w io.Writer, from, to string) {
 	fmt.Fprintf(w, "\n  !  Base URL is changing from %s to %s.\n"+
-		"     Every card and the permanent browse sign will encode the new host.\n"+
+		"     Every card and the permanent shelf code will encode the new host.\n"+
 		"     The shelf code already mounted becomes wrong.\n\n", from, to)
 }
 
