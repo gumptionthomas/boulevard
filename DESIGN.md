@@ -117,6 +117,16 @@ Sessions are **swept**: an expired row is deleted, not merely ignored, on the re
 - **Browse code** — stable, generated once, printed once, mounted permanently. Encodes `https://host/`. Reads *"Scan to browse the shelf — anyone, anywhere, anytime. No code needed."*
 - **Leave/take code** — rotating monthly, swapped by the steward from a printed booklet. Encodes `https://host/s/<token>`. Reads *"Scan to leave or take."*
 
+### Vocabulary (amended by Milestone 5)
+
+**"The shelf" names both the digital list and the physical spot.** A reader meets "the shelf is empty" on the page and "scan the card at the shelf" on the sign in the same breath, and that is intended — they are the same thing, and one noun is easier to hold onto outdoors in bad light than two.
+
+**The two printed artifacts have names, not descriptions:** the browse code above is user-facing copy's **shelf code**, and the leave/take code is the **take/leave card**. User-facing copy says one of those, never "the box," "the box door," "the hinge," or "Little Free Library." An LFL is one demographic; a Boulevard may be a sandwich board, a garage door, or a fence, and copy that assumes a box excludes every steward who has none. `TestNoTemplateAssumesALittleFreeLibrary` (`internal/web`) and its `internal/booklet` counterpart walk the embedded templates and the booklet cover for exactly those strings.
+
+This is a change to what a reader is shown, not a find-and-replace across the repository — this document's own prose, code comments, and commit messages go on saying "the box" where it reads naturally.
+
+**Neither artifact's copy claims a scan distance.** The two QR codes are 1.5in and 1.15in as of Milestone 5 (§13) — both readable only up close — so nothing user-facing says "from the sidewalk" or "from across the yard" until Milestone 5.5 makes one of them big enough for that to be true.
+
 ### Token scheme
 
 At install, generate **12 tokens** (128 bits of entropy, base32, no ambiguous characters). Each is assigned an explicit calendar period.
@@ -245,17 +255,19 @@ Max 3. Never evicted, never expire, no copies, cannot be taken. For the "what is
 
 The shelf page is the primary surface and it is used **one-handed, on a phone, outdoors, in bad light, possibly in winter.** Design for that, not for a desktop browser. Large tap targets, high contrast, no hover states, fast on cold cellular.
 
-Every item shows its note prominently and its `copies_left`. Without a session, leave and take controls are visible but inert, with a short explanation: *"Scan the code at the box to take or leave something."* Visible-but-inert, not hidden — a remote reader should understand the rule, not think the feature is missing.
+Every item shows its note prominently and its `copies_left`. Without a session, leave and take controls are visible but inert, with a short explanation: *"Scan the card at the shelf to take or leave."* Visible-but-inert, not hidden — a remote reader should understand the rule, not think the feature is missing.
 
-### The empty state
+### Orientation, and the empty state
 
-**An empty shelf is the honest outcome and ships as-is.** It is an invitation: the clearest possible signal that the thing wants something from you. A shelf holding one stale link is sad and reads as abandoned.
+**Milestone 5 corrects a claim made here.** This section used to call the empty state "arguably the most important screen in the application." That overstated it: empty is rare, mostly a steward's own first hour before anyone has left anything. The gap that actually recurs is orientation, and it is missing on **every** shelf, not only an empty one — a stocked shelf shows notes and links but never says what the thing is or how it changes, so someone arriving from a shared link at a full shelf is exactly as lost as someone arriving at an empty one.
 
-This page gets real design attention. It is arguably the most important screen in the application.
+The fix is one line above the items, *"Things people leave for each other,"* shown **unconditionally** — whether or not the reader holds a session. Session state is not a proxy for understanding: someone may scan the take/leave card *precisely because* they are trying to work out what this is, and gating the explanation on a session would hide it from exactly the person asking.
+
+With the orientation line in place, the empty state stops being a special screen. **It is the ordinary shelf page with nothing in the middle** — same line at the top, same layout, no items between it and the leave button. It is still the honest outcome, and it is still an invitation; it no longer needs a design pass of its own to be one.
 
 ### With session
 
-Leave form (type, payload, note, optional attribution) and an active take control on each item. A persistent, quiet banner: *"You're at the box. Until [time] tomorrow."*
+Leave form (type, payload, note, optional attribution) and an active take control on each item. A persistent, quiet banner: *"You're at the shelf. Until [time]."*
 
 **The banner names no verbs.** It once read *"You can leave or take until…"*, which asserted a capability the controls below it could have already withdrawn — most starkly on the leave form, where it sat directly above a disabled button explaining that three leaves were already spent. A line that renders on every page in every state cannot also be an accurate summary of what is left; presence and allowance are different facts. The banner states presence and its deadline; the inert controls state the allowance, each in its own place (§5's per-session limits).
 
@@ -486,7 +498,9 @@ This is the smallest artifact that proves the whole model. If it feels awkward, 
 
 **Milestone 5 — polish.** The empty state, cold-cellular performance, one-handed outdoor usability, the about page.
 
-It also carries a **deliberate look-and-feel sweep**, mostly non-functional, called for after the Milestone 4b acceptance run: the bones are right, but **copy, ordering and type sizes** each need a pass. Named there or found since — a rotate confirmation whose most consequential sentence is the smallest type on the page; a destructive control sitting closer to a benign one than anything else on the shelf; the CLI and the desk labelling the same card differently ("Booklet 2 · Card 1" against "Booklet 2 · Card 1 of 12"); the tokens page having no empty state where the CLI has a good one; and `boulevard booklet`'s reprint still asking for a base URL that is printed on a mounted sign. This is a sweep, not a rewrite: nothing here changes what the software does.
+It also carried a **deliberate look-and-feel sweep**, mostly non-functional, called for after the Milestone 4b acceptance run: the bones were right, but **copy, ordering and type sizes** each needed a pass. Named there or found since — a rotate confirmation whose most consequential sentence was the smallest type on the page; a destructive control sitting closer to a benign one than anything else on the tokens page; and copy that assumed a Little Free Library. Delivered: a `.consequence` type class and an explicit size scale; a control-placement rule keeping destructive actions last and 44px clear of anything benign; the vocabulary sweep of §4 across templates and the booklet cover; and an unconditional orientation line, which is also what corrected §6's empty-state claim (above). This was a sweep, not a rewrite — nothing in it changed what the software does. Left for later because both are behavior rather than look-and-feel: `boulevard booklet`'s reprint still asking for a base URL that is printed on a mounted sign, and the tokens page accumulating revoked rows after rotation.
+
+**Milestone 5.5 — the shelf code.** The two printed codes are 1.5in and 1.15in (§4), both readable only up close — Milestone 5's copy had to distinguish the two artifacts by what they do, never by how far away they work, because the size difference the copy would like to lean on is not yet real. 5.5 gives the shelf code its own full page, 6–7in, large enough to read from several feet rather than inches, and re-records the golden booklet PDF against the new geometry. Only after that may copy claim a scan distance — `TestNoTemplateAssumesALittleFreeLibrary` and its booklet counterpart (§4) ban "from the sidewalk" and "from a distance" until this milestone lands, precisely so the claim cannot arrive before the artifact does.
 
 **Milestone 6 (v2) — the host layer.** Registry database, steward invites and accounts, neighborhood map, private moderation queue, quotas, `export-host` with redirect map. Reachable without refactoring only if §10's v1 obligation was honored throughout.
 

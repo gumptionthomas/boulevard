@@ -11,9 +11,14 @@ Libraries stand.
 
 ## Status
 
-Milestone 4b — token management and export. The booklet generator, the HTTP
-server, items, taking, the steward's desk, and now full control over the
-booklet's twelve cards and a way to take the whole library with you.
+Milestone 5 — polish. The booklet generator, the HTTP server, items, taking,
+the steward's desk, full control over the booklet's twelve cards, a way to
+take the whole library with you, and a copy/ordering/type-size sweep across
+all of it: an unconditional orientation line on the shelf, a distinct type
+style for irreversible actions, destructive controls placed last and apart,
+and user-facing copy that no longer assumes a Little Free Library or claims
+a scan distance. Milestone 5.5, giving the shelf code its own full page, is
+next.
 
     boulevard booklet    --name "..." --location "..." --base-url https://...
     boulevard steward-key                  # mint the steward's admin credential

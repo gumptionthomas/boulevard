@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Repository state
 
-Milestones 0 through 4b are built: `boulevard booklet` prints the twelve-card booklet and the browse sign, `boulevard serve` runs the shelf, `boulevard queue` / `approve` / `reject` run the approval CLI, `boulevard shed` / `reshelve` / `release` run the shed, and `boulevard steward-key` mints the steward's credential. Scanning a card grants a 24-hour session; a session can leave an item, which waits `pending` until a steward approves it onto the shelf or rejects it, and can take an item, which is undoable until the session ends. Items shed by eviction, expiry, being taken to zero copies, or a steward's removal wait for a steward to re-shelve or release them. The steward's desk — login, hub, queue, shelf, shed, settings, pins, tokens, export — is reachable from a phone at `/b/{slug}/steward/`; the CLIs remain for headless use. `boulevard tokens` lists the booklet; `force-activate`, `extend` and `revoke` change one card's state or dates; `boulevard booklet --rotate` mints the next twelve; `boulevard export` (and the desk's export page) writes the library out as one runnable SQLite file. Milestone 5, polish, is next.
+Milestones 0 through 5 are built: `boulevard booklet` prints the twelve-card booklet and the browse sign, `boulevard serve` runs the shelf, `boulevard queue` / `approve` / `reject` run the approval CLI, `boulevard shed` / `reshelve` / `release` run the shed, and `boulevard steward-key` mints the steward's credential. Scanning a card grants a 24-hour session; a session can leave an item, which waits `pending` until a steward approves it onto the shelf or rejects it, and can take an item, which is undoable until the session ends. Items shed by eviction, expiry, being taken to zero copies, or a steward's removal wait for a steward to re-shelve or release them. The steward's desk — login, hub, queue, shelf, shed, settings, pins, tokens, export — is reachable from a phone at `/b/{slug}/steward/`; the CLIs remain for headless use. `boulevard tokens` lists the booklet; `force-activate`, `extend` and `revoke` change one card's state or dates; `boulevard booklet --rotate` mints the next twelve; `boulevard export` (and the desk's export page) writes the library out as one runnable SQLite file. Milestone 5 was a copy, ordering and type-size sweep, not a behavior change: every shelf now carries an unconditional orientation line, a `.consequence` type class replaces overloaded error styling for irreversible actions, destructive controls sit last and 44px clear of anything benign, and user-facing copy no longer assumes a Little Free Library or claims a scan distance. Milestone 5.5, giving the shelf code its own full page and re-recording the golden PDF, is next.
 
 ```
 cmd/boulevard/     main.go booklet.go serve.go queue.go shed.go stewardkey.go tokens.go export.go version.go
@@ -63,7 +63,7 @@ boulevard version
 
 ## Build order (§13)
 
-0 booklet ✅ · 1 presence ✅ (scan → session cookie) · 2 shelf ✅ (items, leave form, approval queue) · 3 mechanics ✅ (take, undo, session sweeping, expiry, the shed, rate limits) · 4a steward's desk ✅ (generated key, the admin shell at `/b/{slug}/steward/`, queue/shelf/shed/settings pages, pins, remove-sheds) · 4b token management and export ✅ (force-activate, extend, revoke, rotate, download the booklet, export as a runnable file) · **5 polish next** · 6 (v2) host layer.
+0 booklet ✅ · 1 presence ✅ (scan → session cookie) · 2 shelf ✅ (items, leave form, approval queue) · 3 mechanics ✅ (take, undo, session sweeping, expiry, the shed, rate limits) · 4a steward's desk ✅ (generated key, the admin shell at `/b/{slug}/steward/`, queue/shelf/shed/settings pages, pins, remove-sheds) · 4b token management and export ✅ (force-activate, extend, revoke, rotate, download the booklet, export as a runnable file) · 5 polish ✅ (type scale, `.consequence`, control placement, vocabulary sweep, unconditional orientation line) · **5.5 the shelf code next** (its own full page, 6–7in, golden PDF re-recorded) · 6 (v2) host layer.
 
 **Milestone 4 split in two.** `DESIGN.md` §13 names one Milestone 4; the spec that built it (`docs/superpowers/specs/2026-08-17-steward-desk-design.md`) split it into 4a (this: auth, hub, queue, shelf, shed, settings — everything about what is on the shelf) and 4b (token management and export — everything about the box and its data), because bundled they were larger than Milestone 3, which already ran to nine tasks and a whole-branch review. The two share only the admin shell.
 
@@ -116,6 +116,7 @@ Each of these looks like an oversight and is not. The reasoning is in `DESIGN.md
 - **No e-ink display for the rotating code.** Rejected on the merits, not deferred: swapping the paper card is the only thing that reliably walks a steward to their box monthly.
 - **Images: strip EXIF including GPS**, resize, cap dimensions and file size, on upload.
 - **AGPL compliance by construction:** source link in every public page footer; version, commit, and repo URL embedded in the binary and surfaced on `/about` and `boulevard version`; modified builds require a source URL at install.
+- **User-facing copy never assumes a Little Free Library, and never claims a scan distance.** A Boulevard may be a sandwich board, a garage door, or a fence: "the box", "box door" and "the hinge" exclude those stewards. And the shelf code is 1.5in today — readable only up close — so "from the sidewalk" is a promise the paper cannot keep until Milestone 5.5 makes the code bigger. `TestNoTemplateAssumesALittleFreeLibrary` guards both; it walks the embedded template FS, so a new page cannot quietly reintroduce either.
 
 ## Design constraints on the UI
 
@@ -123,7 +124,7 @@ The shelf page is used one-handed, on a phone, outdoors, in bad light, possibly 
 
 Without a session, leave/take controls are **visible but inert** with an explanation — never hidden. A remote reader should understand the rule, not think the feature is missing.
 
-The **empty state ships as-is and gets real design attention**; it is arguably the most important screen. An empty shelf is an invitation, and is better than one stale link.
+The shelf carries an **unconditional orientation line** above the items — session or none, empty or stocked — because a session is not a proxy for understanding: scanning the take/leave card is often how someone works out what this is (DESIGN.md §6, amended by Milestone 5). With that line in place, an **empty shelf is the ordinary shelf page with nothing in the middle**, not a special screen — it ships as the honest outcome and reads as an invitation, which beats one stale link.
 
 Avoid mechanics that generate steward labor — that is the path to the steward-blog failure mode.
 
