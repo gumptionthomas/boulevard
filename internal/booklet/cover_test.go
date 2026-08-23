@@ -42,7 +42,7 @@ func TestCoverRendersWithoutError(t *testing.T) {
 
 func TestTooLongLibraryNameProducesAnError(t *testing.T) {
 	in := testInput(t)
-	// Wraps to 3 lines on the browse sign at its 14pt Times Bold, well past
+	// Wraps to 3 lines on the shelf code at its 14pt Times Bold, well past
 	// the 2-line budget the sign's fixed height affords.
 	in.Library.Name = "North Fourteenth Street Little Free Library and Boulevard"
 	p, err := BuildPlan(in)
@@ -51,10 +51,10 @@ func TestTooLongLibraryNameProducesAnError(t *testing.T) {
 	}
 	_, err = fixedRenderer().Render(p)
 	if err == nil {
-		t.Fatal("Render succeeded with a library name too long for the browse sign, want an error")
+		t.Fatal("Render succeeded with a library name too long for the shelf code, want an error")
 	}
-	if n := strings.Count(err.Error(), "browse sign:"); n != 1 {
-		t.Errorf("error says %q; %q appears %d times, want 1", err, "browse sign:", n)
+	if n := strings.Count(err.Error(), "shelf code:"); n != 1 {
+		t.Errorf("error says %q; %q appears %d times, want 1", err, "shelf code:", n)
 	}
 }
 
@@ -98,7 +98,7 @@ func TestValidateSignNameSaysWhatToDoAboutIt(t *testing.T) {
 		t.Fatal("ValidateSignName accepted a name that does not fit the sign")
 	}
 	msg := err.Error()
-	for _, want := range []string{"browse sign", "characters", "--name"} {
+	for _, want := range []string{"shelf code", "characters", "--name"} {
 		if !strings.Contains(msg, want) {
 			t.Errorf("message %q does not mention %q; a steward needs a remedy, not geometry", msg, want)
 		}
@@ -110,13 +110,13 @@ func TestValidateSignNameSaysWhatToDoAboutIt(t *testing.T) {
 
 func TestTwoLineLibraryNameRendersWithoutError(t *testing.T) {
 	in := testInput(t)
-	// Wraps to exactly 2 lines on the browse sign — within the budget.
+	// Wraps to exactly 2 lines on the shelf code — within the budget.
 	in.Library.Name = "The Whittier Community Boulevard"
 	p, err := BuildPlan(in)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if _, err := fixedRenderer().Render(p); err != nil {
-		t.Errorf("Render: %v, want a two-line library name to fit the browse sign", err)
+		t.Errorf("Render: %v, want a two-line library name to fit the shelf code", err)
 	}
 }
