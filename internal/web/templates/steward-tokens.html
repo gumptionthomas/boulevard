@@ -9,7 +9,7 @@
     <div class="item">
       <p class="note">
         {{.Month}} {{.Year}}
-        {{if .Active}}<span class="tag">in the door</span>{{end}}
+        {{if .Active}}<span class="tag">at the shelf</span>{{end}}
       </p>
       <p class="src">
         {{if gt .Booklet 1}}Booklet {{.Booklet}} · {{end}}Card {{.Card}} of 12 ·
@@ -18,7 +18,7 @@
       {{if .Seen}}<p class="dim">seen</p>{{else}}<p class="dim">never scanned</p>{{end}}
       {{if .CanForce}}
         <form method="post" action="{{$.StewardURL}}tokens/{{.Period}}/force-activate">
-          <button type="submit">Put this card in the door</button>
+          <button type="submit">Put this card in place</button>
         </form>
       {{end}}
       {{if .CanExtend}}
@@ -31,12 +31,12 @@
       {{end}}
     </div>
   {{end}}
-  <p class="err">
+  <p class="consequence">
     This download holds every card's secret — the shelf's write credential.
     This connection is not encrypted, so anyone on this network can read it.
   </p>
   <a class="btn" href="{{.StewardURL}}booklet.pdf">Download the booklet</a>
-  <a class="linkish" href="{{.StewardURL}}tokens/rotate/confirm">Start a new booklet…</a>
   <a class="btn" href="{{.StewardURL}}">Back to the hub</a>
+  <a class="destructive" href="{{.StewardURL}}tokens/rotate/confirm">Start a new booklet…</a>
 </main>
 {{end}}

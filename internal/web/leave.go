@@ -170,7 +170,7 @@ func (s *Server) handleLeft(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	s.render(w, http.StatusOK, "left.html", pageData{
-		Title:            "Left at the box",
+		Title:            "Left at the shelf",
 		LibraryName:      lib.Name,
 		ShelfURL:         shelfURL(lib),
 		AwaitingApproval: lib.ApprovalRequired,

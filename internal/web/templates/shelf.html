@@ -8,9 +8,15 @@
      your three. A line that renders on every page in every state cannot
      also be a summary of remaining allowance; the inert controls own that.
      DESIGN.md §6 is amended to match. */}}
-{{if .HasSession}}<div class="banner">You're at the box.<span>Until {{.Deadline}}.</span></div>{{end}}
+{{if .HasSession}}<div class="banner">You're at the shelf.<span>Until {{.Deadline}}.</span></div>{{end}}
 <main>
   <div class="site">{{.LibraryName}}</div>
+  {{/* Unconditional on purpose. A session does not mean the reader
+       understands what this is — scanning the take/leave card is often how
+       someone asks. And a stocked shelf explains itself no better than an
+       empty one: it shows notes and links, never the rule that you have to
+       be here to add to them. DESIGN.md §6 is amended to match. */}}
+  <p class="dim">Things people leave for each other.</p>
   {{if .Notice}}<p class="err">{{.Notice}}</p>{{end}}
   {{if .ItemViews}}
     {{range .ItemViews}}
@@ -33,12 +39,12 @@
          is one tap away from coming back. */}}
     <div class="empty">
       <h2>You took the last of what was here.</h2>
-      <p class="dim">The shelf refills as neighbours leave things. Yours is below if you'd rather put it back.</p>
+      <p class="dim">Yours is below if you'd rather put it back.</p>
     </div>
   {{else}}
     <div class="empty">
       <h2>The shelf is empty.</h2>
-      <p class="dim">Nothing here yet. That's an invitation.</p>
+      <p class="dim">That's an invitation.</p>
     </div>
   {{end}}
   {{if .TakenToZero}}
@@ -61,7 +67,7 @@
       </div>
     {{end}}
   {{end}}
-  {{if not .HasSession}}<p class="dim">Scan the code at the box to take or leave something.</p>{{end}}
+  {{if not .HasSession}}<p class="dim">Scan the card at the shelf to take or leave.</p>{{end}}
   <a class="btn" href="{{.LeaveURL}}">Leave something</a>
 </main>
 {{end}}

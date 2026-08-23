@@ -114,8 +114,8 @@ func TestResolveLibraryWarnsOnBaseURLChangeButProceeds(t *testing.T) {
 	if lib.BaseURL != "https://new.example.org" {
 		t.Errorf("BaseURL = %q, want the new value", lib.BaseURL)
 	}
-	if !strings.Contains(strings.ToLower(warn.String()), "browse sign") {
-		t.Errorf("expected a loud warning about the permanent browse sign, got %q", warn.String())
+	if !strings.Contains(strings.ToLower(warn.String()), "shelf code") {
+		t.Errorf("expected a loud warning about the permanent shelf code, got %q", warn.String())
 	}
 }
 
@@ -277,7 +277,10 @@ func TestRunBookletNamesTheLibraryItIsAboutToTouch(t *testing.T) {
 	if !strings.Contains(typo, "the-fairview-boulevard") {
 		t.Errorf("output does not list the library already in the database, so the typo stays invisible:\n%s", typo)
 	}
-	if !strings.Contains(typo, "Name:      Fairview Boulevard") {
+	// The exact spacing is part of the assertion: printIntent's label column
+	// widened when "Sign:" became "Shelf code:", and this is the one screen
+	// a steward is asked to read closely enough to spot a typo in.
+	if !strings.Contains(typo, "Name:        Fairview Boulevard") {
 		t.Errorf("output does not echo the name that was typed:\n%s", typo)
 	}
 }
@@ -712,7 +715,7 @@ func TestRotateWarningNamesTheCostWhenNothingIsInTheDoor(t *testing.T) {
 		t.Errorf("warning does not say the card in the door survives:\n%s", lit.String())
 	}
 	if strings.Contains(lit.String(), "left or taken") {
-		t.Errorf("warning claims the box goes dark while a card is in the door:\n%s", lit.String())
+		t.Errorf("warning claims the shelf goes dark while a card is in the door:\n%s", lit.String())
 	}
 }
 

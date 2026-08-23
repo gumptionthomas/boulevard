@@ -201,7 +201,7 @@ func TestRevokingTheActiveCardSaysTheBoxGoesDark(t *testing.T) {
 			t.Fatalf("revoke exit = %d, want %d", code, exitOK)
 		}
 	})
-	if !strings.Contains(out, "card in the door") || !strings.Contains(out, "left or taken") {
+	if !strings.Contains(out, "card at the shelf") || !strings.Contains(out, "left or taken") {
 		t.Errorf("revoking the active card does not say the box goes dark:\n%s", out)
 	}
 

@@ -20,12 +20,19 @@ func SignRect(cover Rect) Rect {
 
 // installSteps carries no step numbers: they are generated at render time,
 // so the list can be reordered or added to without editing every string.
+//
+// Nothing here names a Little Free Library. A Boulevard may be a sandwich
+// board, a garage door, or a fence — "inside the box door" and "the hinge"
+// asked a steward to have things they may not have. Nor does any step claim
+// a scan distance: the shelf code is 1.5in today and readable only up
+// close, so "from the sidewalk" would be a promise the paper cannot keep.
+// Milestone 5.5 makes it true, and this string changes with it.
 var installSteps = []string{
 	"Cut the cards apart along the hairlines. Keep them in order.",
-	"Tape the current month's card inside the box door.",
+	"Put the current month's card at the shelf, where someone has to come close to scan it.",
 	"On the first of each month, swap in the next card.",
-	"While you are there, look at the hinge, the sign, and the shelf.",
-	"Mount the browse sign where it can be read from the sidewalk.",
+	"While you are there, look at the shelf and what is on it.",
+	"Mount the shelf code where people will see it.",
 }
 
 func drawCover(pdf *fpdf.Fpdf, c Cover) error {
@@ -50,7 +57,7 @@ func drawCover(pdf *fpdf.Fpdf, c Cover) error {
 	// a library name running past its border, the same stance the base URL
 	// gets before any PDF is written at all.
 	if err := drawBrowseSign(pdf, SignRect(c.Rect), c.SignPayload, c.LibraryName); err != nil {
-		return fmt.Errorf("browse sign: %w", err)
+		return fmt.Errorf("shelf code: %w", err)
 	}
 
 	// Instructions.
@@ -135,7 +142,7 @@ func ValidateSignName(name string) error {
 	if len(lines) <= signNameMaxLines {
 		return nil
 	}
-	return fmt.Errorf("%q is too long for the browse sign (about %d characters fit). Pass a shorter --name",
+	return fmt.Errorf("%q is too long for the shelf code (about %d characters fit). Pass a shorter --name",
 		name, signNameBudget(pdf, name, w))
 }
 
@@ -171,7 +178,7 @@ func drawBrowseSign(pdf *fpdf.Fpdf, r Rect, payload, libraryName string) error {
 
 	code, err := Encode(payload)
 	if err != nil {
-		return fmt.Errorf("browse sign qr: %w", err)
+		return fmt.Errorf("shelf code qr: %w", err)
 	}
 	drawQR(pdf, code, r.X+20, r.Y+(r.H-SignQR)/2, SignQR)
 
@@ -194,7 +201,7 @@ func drawBrowseSign(pdf *fpdf.Fpdf, r Rect, payload, libraryName string) error {
 	if err != nil {
 		return err
 	}
-	// The caller (drawCover) already prefixes "browse sign: ", so this must
+	// The caller (drawCover) already prefixes "shelf code: ", so this must
 	// not say it again.
 	if len(nameLines) > signNameMaxLines {
 		return fmt.Errorf("library name %q needs %d lines at %.1fpt of width, want at most %d — call ValidateSignName before generating",

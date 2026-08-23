@@ -5,19 +5,19 @@
   <h1>Start a new booklet?</h1>
   {{if .ActiveCard}}
     <p>
-      The card in the door — {{.ActiveCard.Month}} {{.ActiveCard.Year}} — keeps working.
+      The card at the shelf — {{.ActiveCard.Month}} {{.ActiveCard.Year}} — keeps working.
       The {{.PendingCards}} unprinted cards are replaced, and their secrets are discarded.
     </p>
-    <p class="err">
+    <p class="consequence">
       Those {{.PendingCards}} cards stop working the moment this is done. If any of them
       are already cut and sitting in a drawer, throw them away.
     </p>
   {{else}}
-    <p class="err">
+    <p class="consequence">
       No card has been scanned yet, so there is nothing to keep: all
       {{.PendingCards}} cards are replaced and their secrets discarded. Every card
       already printed becomes waste paper, and nothing can be left or taken at the
-      box until you print the new booklet and carry a card to it.
+      shelf until you print the new booklet and carry a card to it.
     </p>
   {{end}}
   <p>There is no un-rotate. A discarded secret cannot be brought back.</p>

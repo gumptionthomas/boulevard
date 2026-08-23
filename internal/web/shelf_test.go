@@ -144,10 +144,10 @@ func TestShelfWithoutSessionExplainsTheRule(t *testing.T) {
 	st := testStore(t)
 	addLibrary(t, st, "fairview")
 	body := get(t, New(st, time.Now).Handler(), "/b/fairview/").Body.String()
-	if !strings.Contains(body, "Scan the code at the box to take or leave something.") {
+	if !strings.Contains(body, "Scan the card at the shelf to take or leave.") {
 		t.Error("no-session shelf must carry the §6 explanation")
 	}
-	if strings.Contains(body, "You're at the box.") {
+	if strings.Contains(body, "You're at the shelf.") {
 		t.Error("banner shown without a session")
 	}
 }
@@ -180,7 +180,7 @@ func TestShelfWithSessionShowsTheBanner(t *testing.T) {
 	New(st, func() time.Time { return now }).Handler().ServeHTTP(rec, req)
 
 	body := rec.Body.String()
-	if !strings.Contains(body, "You're at the box.") {
+	if !strings.Contains(body, "You're at the shelf.") {
 		t.Error("banner missing for a live session")
 	}
 	if !strings.Contains(body, "4:12 PM tomorrow") {
@@ -208,15 +208,15 @@ func TestShelfIgnoresASessionForAnotherLibrary(t *testing.T) {
 	rec := httptest.NewRecorder()
 	New(st, func() time.Time { return now }).Handler().ServeHTTP(rec, req)
 
-	if strings.Contains(rec.Body.String(), "You're at the box.") {
+	if strings.Contains(rec.Body.String(), "You're at the shelf.") {
 		t.Error("a session for another library must not grant presence here")
 	}
 }
 
 // TestPagesAreNotCacheable guards the one thing a shared cache in front of
 // this server could get catastrophically wrong: the shelf's body depends on
-// bl_session, so a stored copy hands one visitor's "You're at the box"
-// banner to a stranger, or hands the person standing at the box a cached
+// bl_session, so a stored copy hands one visitor's "You're at the shelf"
+// banner to a stranger, or hands the person standing at the shelf a cached
 // anonymous page.
 func TestPagesAreNotCacheable(t *testing.T) {
 	st := testStore(t)
@@ -258,6 +258,61 @@ func TestUnknownSlugIs404(t *testing.T) {
 				t.Errorf("%s leaked %q", path, forbidden)
 			}
 		}
+	}
+}
+
+// TestShelfAlwaysSaysWhatItIs is task 7: the shelf never explained what it
+// is, only what to do on it (§6's no-session rule text, the session
+// banner).
+//
+// Orientation is unconditional: session or not, empty or stocked. A stocked
+// shelf shows notes and links but never says what the thing is, so a reader
+// arriving from a shared link is exactly as lost as at an empty one. And a
+// session does not mean the reader understands — scanning the card is often
+// how someone asks what this is.
+func TestShelfAlwaysSaysWhatItIs(t *testing.T) {
+	const orientation = "Things people leave for each other."
+
+	for _, tc := range []struct {
+		name             string
+		stocked, session bool
+	}{
+		{"empty, no session", false, false},
+		{"empty, with session", false, true},
+		{"stocked, no session", true, false},
+		{"stocked, with session", true, true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			st := testStore(t)
+			lib := addLibrary(t, st, "fairview")
+			now := time.Date(2026, time.August, 20, 12, 0, 0, 0, time.UTC)
+			h := New(st, func() time.Time { return now }).Handler()
+
+			if tc.stocked {
+				shelveOne(t, st, lib, "a reason", "https://example.org/a", now)
+			}
+
+			var c *http.Cookie
+			if tc.session {
+				tok := addAnyToken(t, st, lib)
+				sid, err := boulevard.NewSessionID(rand.Reader)
+				if err != nil {
+					t.Fatal(err)
+				}
+				if err := st.CreateSession(context.Background(), boulevard.Session{
+					ID: sid, LibraryID: lib.ID, TokenID: tok.ID,
+					CreatedAt: now, ExpiresAt: now.Add(boulevard.SessionTTL),
+				}); err != nil {
+					t.Fatal(err)
+				}
+				c = &http.Cookie{Name: cookieName, Value: string(sid)}
+			}
+
+			body := getWithCookie(t, h, "/b/"+lib.Slug+"/", c).Body.String()
+			if !strings.Contains(body, orientation) {
+				t.Errorf("shelf does not say what it is:\n%s", body)
+			}
+		})
 	}
 }
 

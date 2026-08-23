@@ -247,10 +247,10 @@ func TestRotateConfirmationNamesWhatItDiscards(t *testing.T) {
 	}
 }
 
-// Spec §3: revoking the active card stops the box working until someone
-// walks to it with a different card, and the confirmation says so plainly.
-// Both surfaces owe the steward that sentence — a steward revoking a
-// photographed sheet from their kitchen has no other way to learn it.
+// Spec §3: revoking the active card stops anyone leaving or taking until
+// someone walks to it with a different card, and the confirmation says so
+// plainly. Both surfaces owe the steward that sentence — a steward revoking
+// a photographed sheet from their kitchen has no other way to learn it.
 func TestRevokingTheActiveCardSaysTheBoxGoesDark(t *testing.T) {
 	st, lib, key := stewardServer(t)
 	seedWebTokens(t, st, lib)
@@ -267,14 +267,14 @@ func TestRevokingTheActiveCardSaysTheBoxGoesDark(t *testing.T) {
 	if pending.Code != http.StatusOK {
 		t.Fatalf("status = %d, want 200", pending.Code)
 	}
-	if strings.Contains(pending.Body.String(), "stops the box working") {
-		t.Error("a pending card's confirmation claims the box stops working")
+	if strings.Contains(pending.Body.String(), "stops anyone from leaving or taking") {
+		t.Error("a pending card's confirmation claims leaving or taking stops")
 	}
 
-	// The active card's is about the box.
+	// The active card's is about the shelf.
 	active := getWithCookie(t, h, "/b/"+lib.Slug+"/steward/tokens/1/revoke/confirm", c)
-	if !strings.Contains(active.Body.String(), "stops the box working") {
-		t.Errorf("the active card's confirmation does not say the box stops working:\n%s", active.Body.String())
+	if !strings.Contains(active.Body.String(), "stops anyone from leaving or taking") {
+		t.Errorf("the active card's confirmation does not say leaving or taking stops:\n%s", active.Body.String())
 	}
 
 	rec := postForm(t, h, "/b/"+lib.Slug+"/steward/tokens/1/revoke", nil, c)
@@ -318,7 +318,7 @@ func TestExtendRefusalNamesTheState(t *testing.T) {
 	if rec.Code != http.StatusConflict {
 		t.Fatalf("status = %d, want 409", rec.Code)
 	}
-	if !strings.Contains(rec.Body.String(), "card in the door") {
+	if !strings.Contains(rec.Body.String(), "card at the shelf") {
 		t.Errorf("the refusal does not name why the card can't be extended:\n%s", rec.Body.String())
 	}
 }
@@ -386,6 +386,46 @@ func TestTokenMutationsAre404ToAGET(t *testing.T) {
 		if allow := rec.Header().Get("Allow"); allow != "" {
 			t.Errorf("GET %s set Allow: %q", p, allow)
 		}
+	}
+}
+
+// The destructive control comes last and is not a mis-tap from a benign one.
+//
+// "Start a new booklet…" used to sit twelve pixels under the full-width
+// "Download the booklet" button, with "Back to the hub" after it — the two
+// most different actions on the page adjacent, on a surface specified for
+// one-handed outdoor use.
+func TestRotateControlComesLastAndApart(t *testing.T) {
+	st, lib, key := stewardServer(t)
+	seedWebTokens(t, st, lib)
+	h := New(st, func() time.Time {
+		return time.Date(2026, time.August, 20, 12, 0, 0, 0, time.UTC)
+	}).Handler()
+
+	body := getWithCookie(t, h, "/b/"+lib.Slug+"/steward/tokens",
+		loginAsSteward(t, h, lib, key)).Body.String()
+
+	download := strings.Index(body, "Download the booklet")
+	hub := strings.Index(body, "Back to the hub")
+	rotate := strings.Index(body, "Start a new booklet")
+	for name, i := range map[string]int{"download": download, "hub": hub, "rotate": rotate} {
+		if i < 0 {
+			t.Fatalf("%s control missing from the page", name)
+		}
+	}
+	if rotate < hub {
+		t.Error("the destructive control is above 'Back to the hub'; it must come last")
+	}
+	if rotate < download {
+		t.Error("the destructive control is above 'Download the booklet'; it must come last of all three")
+	}
+
+	layout, err := templateFS.ReadFile("templates/layout.html")
+	if err != nil {
+		t.Fatalf("read layout: %v", err)
+	}
+	if !strings.Contains(string(layout), "a.destructive") {
+		t.Error("layout.html defines no a.destructive class")
 	}
 }
 

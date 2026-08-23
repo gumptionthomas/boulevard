@@ -104,7 +104,7 @@ func TestTakeWithoutASessionIsRefused(t *testing.T) {
 	if rec.Code != http.StatusForbidden {
 		t.Fatalf("status = %d, want 403", rec.Code)
 	}
-	if !strings.Contains(rec.Body.String(), "Scan the code at the box") {
+	if !strings.Contains(rec.Body.String(), "Scan the card at the shelf") {
 		t.Error("the 403 does not explain the rule")
 	}
 }
@@ -515,7 +515,7 @@ func TestItemPageWithoutASessionExplainsTheRule(t *testing.T) {
 	rec := httptest.NewRecorder()
 	srv.ServeHTTP(rec, req)
 
-	if !strings.Contains(rec.Body.String(), "Scan the code at the box") {
+	if !strings.Contains(rec.Body.String(), "Scan the card at the shelf") {
 		t.Error("the item page's inert control has no explanation without a session")
 	}
 }

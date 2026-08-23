@@ -124,7 +124,7 @@ func warnStartup(st *store.Store) {
 		// gets told once, in the place it is already looking, rather than
 		// silently carrying both in the clear.
 		if !strings.HasPrefix(lib.BaseURL, "https://") {
-			fmt.Printf("  ! The base URL is %s\n    The steward key and its cookie cross the network in the clear.\n    Anyone on this network can read them. Put TLS in front of this\n    box before it is reachable from outside your LAN.\n", lib.BaseURL)
+			fmt.Printf("  ! The base URL is %s\n    The steward key and its cookie cross the network in the clear.\n    Anyone on this network can read them. Put TLS in front of this\n    shelf before it is reachable from outside your LAN.\n", lib.BaseURL)
 		}
 	}
 }
