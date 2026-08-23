@@ -96,14 +96,14 @@ a.linkish {
 /* a.destructive is for an action that cannot be undone: rotating a booklet,
    revoking a card. It is deliberately quieter than a.btn and deliberately
    far from it.
-   The separation is the point, not the styling. This page is read
-   one-handed, outdoors, and a destructive control one tap-target below a
-   benign one is a mis-tap waiting to happen — "Start a new booklet…" used
-   to sit 12px under "Download the booklet". 44px is more space than
-   anything else on the page puts between two controls, which is what makes
-   it read as a different kind of thing rather than the next item in a list. */
+   The 44px separation is what prevents mis-taps — "Start a new booklet…"
+   used to sit 12px under "Download the booklet", and 44px is more space than
+   anything else on the page puts between two controls, so it reads as a
+   different kind of thing rather than the next item in a list.
+   The padding makes deliberate taps land: on a surface read one-handed
+   outdoors, the destructive control must not be the smallest tap target. */
 a.destructive {
-  display:block; margin-top:44px; text-decoration:none;
+  display:block; margin-top:44px; padding:12px 22px; text-decoration:none;
   font-size:16px; font-weight:600; color:#8a2b20;
 }
 /* On the shelf, each item's own take/undo control sits inside a repeated
@@ -122,6 +122,7 @@ a.destructive {
      near AA. A sentence meant to stop someone is the last place to let
      dark mode quietly fail contrast, so it gets the same #e8927f fix. */
   .consequence { color:#e8927f; }
+  a.destructive { color:#e8927f; }
 }
 /* input[type=checkbox] gets its own rule: the block input/textarea/select
    rule above stretches every field to 100% width with 13px of padding,

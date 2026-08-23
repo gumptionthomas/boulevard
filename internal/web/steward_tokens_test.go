@@ -416,6 +416,9 @@ func TestRotateControlComesLastAndApart(t *testing.T) {
 	if rotate < hub {
 		t.Error("the destructive control is above 'Back to the hub'; it must come last")
 	}
+	if rotate < download {
+		t.Error("the destructive control is above 'Download the booklet'; it must come last of all three")
+	}
 
 	layout, err := templateFS.ReadFile("templates/layout.html")
 	if err != nil {
