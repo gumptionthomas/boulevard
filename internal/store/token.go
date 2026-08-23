@@ -178,10 +178,11 @@ func (s *Store) RecordScan(ctx context.Context, id boulevard.LibraryID, tok boul
 	switch {
 	case errors.Is(err, sql.ErrNoRows):
 		// Nothing active yet, so any token may take the slot. 0 works as
-		// the sentinel only because period_index is 1-based (DESIGN.md §4:
-		// "period_index INT -- 1..12"), which makes every real card strictly
-		// greater than it. A 0-based index would silently refuse to activate
-		// the first card of a booklet.
+		// the sentinel only because period_index is 1-based — the first
+		// booklet numbers 1..12 and every rotation continues upward from
+		// there (DESIGN.md §6), so no real card is ever 0 or below. A
+		// 0-based index would silently refuse to activate the first card of
+		// a booklet.
 		activePeriod = 0
 	case err != nil:
 		return fmt.Errorf("find active token for %q: %w", id, err)
@@ -353,17 +354,34 @@ func (s *Store) RevokeToken(ctx context.Context, id boulevard.LibraryID, periodI
 // split InsertTokens already uses, which keeps randomness injectable and
 // the period arithmetic unit-testable without a database.
 //
-// Only "pending" rows are deleted. A pending card has never granted a
-// session: tokens.Validate answers NotYet before its window opens, and the
-// first scan inside the window is what makes it active. So nothing in
-// `sessions` references the rows this removes, and the foreign key from
-// sessions.token_id has nothing to complain about.
+// Every pending card's secret is discarded, but a seen one is revoked
+// rather than deleted, and that split is load-bearing. A pending card *can*
+// have granted a session: RecordScan marks a card active only when its
+// index exceeds the current active one, so a lower card scanned inside its
+// own window stamps first_seen_at, hands out a session, and stays pending —
+// the stray-card-found-in-a-drawer case DESIGN.md §4 describes, reached the
+// moment a steward force-activates a later card. sessions.token_id is NOT
+// NULL REFERENCES tokens(id) with foreign keys on, so deleting that row
+// fails the constraint and rotation refuses — with the sheet photographed
+// and rotation the very thing being reached for, and no retry helping until
+// the session is swept.
+//
+// "revoked" says exactly the right thing about a discarded secret: it is
+// the one state tokens.Validate refuses on, so the card stops working the
+// moment this commits, while the row stays to hold its session's foreign
+// key and that session expires on its own.
 func (s *Store) RotatePendingTokens(ctx context.Context, id boulevard.LibraryID, toks []boulevard.Token) error {
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
 		return fmt.Errorf("begin rotate: %w", err)
 	}
 	defer tx.Rollback()
+
+	if _, err := tx.ExecContext(ctx,
+		`UPDATE tokens SET state = ? WHERE library_id = ? AND state = ? AND first_seen_at IS NOT NULL`,
+		string(boulevard.TokenRevoked), string(id), string(boulevard.TokenPending)); err != nil {
+		return fmt.Errorf("revoke seen pending tokens: %w", err)
+	}
 
 	if _, err := tx.ExecContext(ctx,
 		`DELETE FROM tokens WHERE library_id = ? AND state = ?`,

@@ -226,6 +226,78 @@ func TestRotateReplacesPendingAndKeepsTheActiveCard(t *testing.T) {
 	}
 }
 
+// A pending card can have granted a session, and rotation has to survive it.
+//
+// RecordScan marks a card active only when its index exceeds the current
+// active one, so a lower card scanned inside its own window grants a session
+// and stays pending — the stray-card-found-in-a-drawer case DESIGN.md §4
+// describes, reached the moment a steward force-activates a later card.
+// sessions.token_id is NOT NULL REFERENCES tokens(id) and foreign keys are
+// on, so deleting that row outright fails the constraint, and rotation — the
+// operation a steward reaches for precisely when the sheet has been
+// photographed — is the one that refuses.
+func TestRotateSurvivesAPendingCardThatGrantedASession(t *testing.T) {
+	ctx, s := context.Background(), openTemp(t)
+	lib, toks := seededLibrary(t, s)
+
+	// The steward swaps November's card in early, so period 4 is the one in
+	// the door and periods 1-3 stay pending with their windows still open.
+	if err := s.ForceActivateToken(ctx, lib.ID, 4, boulevard.NewDate(2026, time.August, 20)); err != nil {
+		t.Fatalf("ForceActivateToken: %v", err)
+	}
+
+	// Someone scans September's card inside its own window. It grants a
+	// session but must not rewind the active card, so it stays pending.
+	scan := time.Date(2026, time.September, 3, 12, 0, 0, 0, time.UTC)
+	if err := s.RecordScan(ctx, lib.ID, toks[1], scan); err != nil {
+		t.Fatalf("RecordScan: %v", err)
+	}
+	if got := stateOf(t, s, lib, 2); got.State != boulevard.TokenPending {
+		t.Fatalf("setup: period 2 state = %q, want pending", got.State)
+	}
+	sessID, err := boulevard.NewSessionID(rand.Reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := s.CreateSession(ctx, boulevard.Session{
+		ID: sessID, LibraryID: lib.ID, TokenID: toks[1].ID,
+		CreatedAt: scan, ExpiresAt: scan.Add(24 * time.Hour),
+	}); err != nil {
+		t.Fatalf("CreateSession: %v", err)
+	}
+
+	existing, err := s.TokensForLibrary(ctx, lib.ID)
+	if err != nil {
+		t.Fatalf("TokensForLibrary: %v", err)
+	}
+	rot := tokens.PlanRotation(existing, boulevard.NewDate(2026, time.September, 3))
+	if err := s.RotatePendingTokens(ctx, lib.ID, buildRotation(t, lib.ID, rot)); err != nil {
+		t.Fatalf("RotatePendingTokens: %v", err)
+	}
+
+	// The seen card keeps its row, so the session's foreign key still
+	// resolves, but its secret no longer opens anything.
+	if seen := stateOf(t, s, lib, 2); seen.State != boulevard.TokenRevoked {
+		t.Errorf("period 2 state = %q, want revoked", seen.State)
+	}
+	if _, err := s.SessionByID(ctx, sessID, scan.Add(time.Hour)); err != nil {
+		t.Errorf("SessionByID: %v — the live session must outlive the rotation", err)
+	}
+	if got := stateOf(t, s, lib, 4); got.State != boulevard.TokenActive {
+		t.Errorf("period 4 state = %q, want active", got.State)
+	}
+	// Every never-scanned pending card is gone, indices and all.
+	after, err := s.TokensForLibrary(ctx, lib.ID)
+	if err != nil {
+		t.Fatalf("TokensForLibrary: %v", err)
+	}
+	for _, tok := range after {
+		if tok.PeriodIndex < tokens.PeriodCount+1 && tok.PeriodIndex != 2 && tok.PeriodIndex != 4 {
+			t.Errorf("period %d survived the rotation", tok.PeriodIndex)
+		}
+	}
+}
+
 // buildRotation turns a Rotation into twelve insertable tokens, the way
 // every caller of RotatePendingTokens must: the store persists tokens, it
 // does not mint secrets (the same split InsertTokens already uses).
