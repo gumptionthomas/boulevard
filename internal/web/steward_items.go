@@ -37,15 +37,15 @@ var okMessages = map[string]string{
 	"unpinned":        "Unpinned.",
 	"reshelved":       "Reshelved.",
 	"released":        "Released. The row stays, so nothing is lost.",
-	"activated":       "That card is now the one in the door. Put it there.",
-	"extended":        "Extended. The card in the door works for another month.",
+	"activated":       "That card is now the one at the shelf. Put it there.",
+	"extended":        "Extended. The card at the shelf works for another month.",
 	"revoked":         "Revoked. That card no longer works — swap it before anyone tries it.",
 	// Two codes for one operation, because revoking the card in the door
 	// costs something no other revoke does: nothing can be left or taken
 	// until someone walks to the box with a different card (spec §3). The
 	// confirmation says it plainly rather than softening it.
 	"revoked-active": "Revoked. Nothing can be left or taken until a different card is at the shelf.",
-	"rotated":        "A new booklet is ready. Print it before the card in the door runs out.",
+	"rotated":        "A new booklet is ready. Print it before the card at the shelf runs out.",
 }
 
 // handleStewardQueue lists what is waiting for a decision.

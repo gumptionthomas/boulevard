@@ -3,7 +3,7 @@
 A shelf you have to stand at.
 
 Anyone on the internet may read a Boulevard shelf. Only someone who has
-physically stood at the box may change what is on it. Presence is the
+physically stood at the shelf may change what is on it. Presence is the
 credential; there are no accounts.
 
 Named for the strip of grass between sidewalk and street, where Little Free
@@ -27,13 +27,13 @@ next.
     boulevard approve <id>                 # put it on the shelf
     boulevard reject  <id>                 # release it
     boulevard tokens                       # list the twelve cards
-    boulevard force-activate <handle>      # put a pending card in the door early
+    boulevard force-activate <handle>      # put a pending card in place early
     boulevard extend <handle>              # give the active card another month
     boulevard revoke <handle>              # burn a card's secret for good
     boulevard booklet --rotate --slug SLUG # mint the next twelve cards
     boulevard export --out fairview.db     # the library as one runnable file
 
-Someone at the box scans a card, leaves a link or a note, and it waits for
+Someone at the shelf scans a card, leaves a link or a note, and it waits for
 a steward to approve it onto the shelf or reject it; anyone with a live
 session can take a shelved item, undoable until the session ends.
 

@@ -178,7 +178,7 @@ func drawBrowseSign(pdf *fpdf.Fpdf, r Rect, payload, libraryName string) error {
 
 	code, err := Encode(payload)
 	if err != nil {
-		return fmt.Errorf("browse sign qr: %w", err)
+		return fmt.Errorf("shelf code qr: %w", err)
 	}
 	drawQR(pdf, code, r.X+20, r.Y+(r.H-SignQR)/2, SignQR)
 

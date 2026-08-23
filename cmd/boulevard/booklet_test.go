@@ -277,7 +277,10 @@ func TestRunBookletNamesTheLibraryItIsAboutToTouch(t *testing.T) {
 	if !strings.Contains(typo, "the-fairview-boulevard") {
 		t.Errorf("output does not list the library already in the database, so the typo stays invisible:\n%s", typo)
 	}
-	if !strings.Contains(typo, "Name:      Fairview Boulevard") {
+	// The exact spacing is part of the assertion: printIntent's label column
+	// widened when "Sign:" became "Shelf code:", and this is the one screen
+	// a steward is asked to read closely enough to spot a typo in.
+	if !strings.Contains(typo, "Name:        Fairview Boulevard") {
 		t.Errorf("output does not echo the name that was typed:\n%s", typo)
 	}
 }

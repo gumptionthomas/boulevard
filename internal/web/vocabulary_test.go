@@ -15,6 +15,13 @@ import (
 // it touched nineteen templates, and the twentieth is the one nobody
 // remembers.
 //
+// "in the door" is the same assumption wearing the active card's name. The
+// first sweep banned the noun and left the metaphor standing in thirteen
+// places, including a button that told a steward with a fence to put a card
+// somewhere they have not got. User-facing copy says "at the shelf" for the
+// physical spot, or "in place" where "at the shelf" would be the third
+// "shelf" in one sentence.
+//
 // "from the sidewalk" and "from a distance" are banned for a different
 // reason: the two printed codes are 1.5in and 1.15in, both readable only up
 // close, so a distance claim describes an artifact that does not exist yet.
@@ -24,6 +31,7 @@ func TestNoTemplateAssumesALittleFreeLibrary(t *testing.T) {
 	banned := []string{
 		"the box",
 		"box door",
+		"in the door",
 		"Little Free Library",
 		"the hinge",
 		"from the sidewalk",

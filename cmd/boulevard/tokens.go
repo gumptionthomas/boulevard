@@ -183,8 +183,8 @@ func runRevoke(args []string) int {
 	fmt.Printf("\n  [%d]  %s — revoked. There is no un-revoke —\n"+
 		"  force-activate the next card or rotate the booklet.\n", period, cardLabel(period))
 	if wasActive {
-		fmt.Printf("\n  !  That was the card in the door. Nothing can be left or taken\n" +
-			"     until someone puts a different card at the shelf.\n")
+		fmt.Printf("\n  !  That was the card at the shelf. Nothing can be left or taken\n" +
+			"     until someone puts a different card there.\n")
 	}
 	fmt.Println()
 	return exitOK

@@ -9,7 +9,7 @@
     <div class="item">
       <p class="note">
         {{.Month}} {{.Year}}
-        {{if .Active}}<span class="tag">in the door</span>{{end}}
+        {{if .Active}}<span class="tag">at the shelf</span>{{end}}
       </p>
       <p class="src">
         {{if gt .Booklet 1}}Booklet {{.Booklet}} · {{end}}Card {{.Card}} of 12 ·
@@ -18,7 +18,7 @@
       {{if .Seen}}<p class="dim">seen</p>{{else}}<p class="dim">never scanned</p>{{end}}
       {{if .CanForce}}
         <form method="post" action="{{$.StewardURL}}tokens/{{.Period}}/force-activate">
-          <button type="submit">Put this card in the door</button>
+          <button type="submit">Put this card in place</button>
         </form>
       {{end}}
       {{if .CanExtend}}

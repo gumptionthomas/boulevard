@@ -178,7 +178,7 @@ func (s *Server) handleStewardForceActivate(w http.ResponseWriter, r *http.Reque
 			return
 		}
 		s.renderStewardTokens(w, r, lib, http.StatusConflict, "",
-			"That card is already "+string(state)+". Only an unused card can be put in the door.")
+			"That card is already "+string(state)+". Only an unused card can be put in place.")
 		return
 	case err != nil:
 		noStore(w)
@@ -211,7 +211,7 @@ func (s *Server) handleStewardExtend(w http.ResponseWriter, r *http.Request) {
 		return
 	case errors.Is(err, store.ErrNotActive):
 		s.renderStewardTokens(w, r, lib, http.StatusConflict, "",
-			"Only the card in the door can be extended.")
+			"Only the card at the shelf can be extended.")
 		return
 	case err != nil:
 		noStore(w)

@@ -70,7 +70,7 @@ func runBooklet(args []string) int {
 
 	normalized, host, err := boulevard.ValidateBaseURL(o.baseURL)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "  x  %v\n     Every card and the permanent browse sign encode this host.\n", err)
+		fmt.Fprintf(os.Stderr, "  x  %v\n     Every card and the permanent shelf code encode this host.\n", err)
 		return exitUsage
 	}
 	o.baseURL = normalized
@@ -386,14 +386,14 @@ func printRotateWarning(w io.Writer, slug string, existing []boulevard.Token) {
 	}
 	fmt.Fprintf(w, "\n  Rotating %s onto a new booklet.\n", slug)
 	if active {
-		fmt.Fprintf(w, "    The card currently in the door keeps working.\n"+
+		fmt.Fprintf(w, "    The card currently at the shelf keeps working.\n"+
 			"    The %d unprinted cards are replaced and their secrets discarded.\n\n", pending)
 	} else {
 		// No card has ever been scanned, so there is nothing to keep — and
 		// this is the case that reads as harmless while costing the most:
 		// every card already printed becomes waste paper, and the box
 		// cannot be written to until a new one is carried to it.
-		fmt.Fprintf(w, "    Nothing has been scanned, so there is no card in the door to keep:\n"+
+		fmt.Fprintf(w, "    Nothing has been scanned, so there is no card in place to keep:\n"+
 			"    all %d cards are replaced and their secrets discarded. Nothing can be\n"+
 			"    left or taken until a card from the new booklet is at the shelf.\n\n", pending)
 	}
@@ -462,7 +462,10 @@ func printIntent(w io.Writer, o bookletOpts, p dbPeek) {
 	default:
 		fmt.Fprintf(w, "\n  Creating a new library %q, with twelve new secrets.\n", o.slug)
 	}
-	fmt.Fprintf(w, "    Name:      %s\n    Location:  %s\n    Cards:     %s/s/<token>\n    Sign:      %s\n",
+	// "Shelf code", not "Sign": warnBaseURLChange below already calls the
+	// same mounted object the shelf code, and the one screen a steward is
+	// asked to actually read must not name it twice over.
+	fmt.Fprintf(w, "    Name:        %s\n    Location:    %s\n    Cards:       %s/s/<token>\n    Shelf code:  %s\n",
 		o.name, o.location, o.baseURL, o.baseURL)
 	if len(p.otherSlugs) > 0 {
 		fmt.Fprintf(w, "\n  %s already holds: %s\n"+

@@ -267,13 +267,13 @@ func TestRevokingTheActiveCardSaysTheBoxGoesDark(t *testing.T) {
 	if pending.Code != http.StatusOK {
 		t.Fatalf("status = %d, want 200", pending.Code)
 	}
-	if strings.Contains(pending.Body.String(), "stops anyone leaving or taking") {
+	if strings.Contains(pending.Body.String(), "stops anyone from leaving or taking") {
 		t.Error("a pending card's confirmation claims leaving or taking stops")
 	}
 
 	// The active card's is about the shelf.
 	active := getWithCookie(t, h, "/b/"+lib.Slug+"/steward/tokens/1/revoke/confirm", c)
-	if !strings.Contains(active.Body.String(), "stops anyone leaving or taking") {
+	if !strings.Contains(active.Body.String(), "stops anyone from leaving or taking") {
 		t.Errorf("the active card's confirmation does not say leaving or taking stops:\n%s", active.Body.String())
 	}
 
@@ -318,7 +318,7 @@ func TestExtendRefusalNamesTheState(t *testing.T) {
 	if rec.Code != http.StatusConflict {
 		t.Fatalf("status = %d, want 409", rec.Code)
 	}
-	if !strings.Contains(rec.Body.String(), "card in the door") {
+	if !strings.Contains(rec.Body.String(), "card at the shelf") {
 		t.Errorf("the refusal does not name why the card can't be extended:\n%s", rec.Body.String())
 	}
 }
