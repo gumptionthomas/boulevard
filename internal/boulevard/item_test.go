@@ -52,14 +52,52 @@ func TestValidateSubmissionTrimsAndKeepsWhatWasTyped(t *testing.T) {
 	}
 }
 
+// A payload with no scheme at all gets https, because typing "https://" on a
+// phone keyboard while standing at a box is real friction and the shelf's
+// own acceptance runs hit it on every link.
+func TestValidateSubmissionAssumesHTTPSForABareDomain(t *testing.T) {
+	for _, tc := range []struct{ typed, want string }{
+		{"example.org", "https://example.org"},
+		{"example.org/thing", "https://example.org/thing"},
+		{"www.example.org/a/b?c=d", "https://www.example.org/a/b?c=d"},
+		{"  example.org/thing  ", "https://example.org/thing"},
+		// Already carrying a scheme: left exactly as typed, including
+		// http, which a steward may mean on a LAN box.
+		{"https://example.org/thing", "https://example.org/thing"},
+		{"http://example.org/thing", "http://example.org/thing"},
+	} {
+		in := linkSubmission()
+		in.Payload = tc.typed
+		got, errs := ValidateSubmission(in)
+		if len(errs) != 0 {
+			t.Errorf("payload %q: errors = %v, want none", tc.typed, errs)
+			continue
+		}
+		if got.Payload != tc.want {
+			t.Errorf("payload %q normalized to %q, want %q", tc.typed, got.Payload, tc.want)
+		}
+	}
+}
+
+// The scheme test is textual and conservative on purpose. Prepending
+// https:// to anything whose scheme merely is not http/https would turn
+// javascript:alert(1) into https://javascript:alert(1) — an href far worse
+// than the rejection it replaced.
 func TestValidateSubmissionRejectsBadLinks(t *testing.T) {
 	for _, payload := range []string{
 		"",
 		"   ",
-		"example.org",         // no scheme
-		"ftp://example.org",   // wrong scheme
-		"javascript:alert(1)", // not a fetchable scheme, and hostile
-		"https://",            // no host
+		"ftp://example.org",          // wrong scheme
+		"javascript:alert(1)",        // hostile, and must never be prepended to
+		"data:text/html,<script>x",   // likewise
+		"mailto:someone@example.org", // not a web address
+		"https://",                   // no host
+		"//example.org",              // protocol-relative: no host once resolved
+		// A bare host:port is indistinguishable from a scheme by grammar
+		// alone (Go parses "example.org:8080/x" with scheme "example.org"),
+		// so it keeps the old message telling the leaver to type the
+		// protocol. Rare enough on a shelf to be worth the safety.
+		"example.org:8080/thing",
 	} {
 		in := linkSubmission()
 		in.Payload = payload

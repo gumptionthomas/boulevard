@@ -2,6 +2,7 @@ package boulevard
 
 import (
 	"net/url"
+	"regexp"
 	"strings"
 	"time"
 	"unicode/utf8"
@@ -136,6 +137,7 @@ func ValidateSubmission(in Submission) (Submission, FieldErrors) {
 
 	switch ItemType(out.Type) {
 	case ItemLink:
+		out.Payload = assumeHTTPS(out.Payload)
 		validateLink(out.Payload, errs)
 	case ItemText:
 		if out.Payload == "" {
@@ -164,6 +166,36 @@ func ValidateSubmission(in Submission) (Submission, FieldErrors) {
 	return out, errs
 }
 
+// schemePrefix is RFC 3986's scheme grammar: ALPHA *( ALPHA / DIGIT / "+" /
+// "-" / "." ) followed by a colon.
+var schemePrefix = regexp.MustCompile(`^[a-zA-Z][a-zA-Z0-9+.\-]*:`)
+
+// assumeHTTPS supplies the scheme a leaver did not type.
+//
+// Typing "https://" on a phone keyboard while standing at a box in the cold
+// is real friction, and a bare domain is unambiguous about what was meant.
+//
+// The test for "no scheme" is textual and conservative, and both halves of
+// that matter. It is textual because url.Parse cannot answer the question:
+// it reads "example.org:8080/x" as scheme "example.org", so an empty
+// Scheme field does not mean what it looks like it means. It is
+// conservative because the tempting shortcut — prepend whenever the scheme
+// is not http or https — turns javascript:alert(1) into
+// https://javascript:alert(1), which is a far worse href than the rejection
+// it replaced. Nothing carrying a scheme is touched, so every hostile
+// scheme still meets validateLink exactly as before.
+//
+// The cost is that a bare host:port ("example.org:8080/x") matches the
+// scheme grammar and so is not helped; it keeps the message telling the
+// leaver to type the protocol. A port on a shelf link is rare enough to be
+// worth the safety.
+func assumeHTTPS(payload string) string {
+	if payload == "" || schemePrefix.MatchString(payload) {
+		return payload
+	}
+	return "https://" + payload
+}
+
 // validateLink accepts only an absolute http or https URL with a host.
 //
 // Nothing here fetches the URL, now or ever: an outbound request per
@@ -181,7 +213,11 @@ func validateLink(payload string, errs FieldErrors) {
 		return
 	}
 	if u.Scheme != "http" && u.Scheme != "https" {
-		errs["payload"] = "Links need to start with http:// or https://"
+		// A payload with no scheme at all never reaches here — assumeHTTPS
+		// gave it one. What is left is something that named a scheme and
+		// named the wrong one, so the message points at the fix rather than
+		// restating a rule the form now applies for them.
+		errs["payload"] = "That is not a web link. Try starting it with https://"
 		return
 	}
 	if u.Host == "" {

@@ -189,6 +189,8 @@ On approval: `copies_total = copies_left = default_copies`, state `shelved`.
 
 If the shelf is full, the **oldest non-pinned item** is evicted to the shed. FIFO, deliberately dumb, requires no steward labor, and — critically — is not attention-weighted. Letting popular items survive longer would rebuild the algorithmic feed this project exists in reaction to.
 
+**A link with no scheme is assumed `https`.** Typing `https://` on a phone keyboard, one-handed, outdoors, is real friction on the one form a passerby ever fills in, and a bare domain is unambiguous about what was meant. The test for "no scheme" is textual rather than `url.Parse`'s `Scheme` field, because Go reads `example.org:8080/x` as scheme `example.org` — and it only ever *supplies* a missing scheme, never replaces one. That second half is load-bearing: prepending whenever the scheme is not http or https would turn `javascript:alert(1)` into `https://javascript:alert(1)`, an href far worse than the rejection it replaced. Anything that named a scheme still meets the http/https check untouched. The accepted cost is that a bare host:port matches the scheme grammar and is not helped.
+
 ### Taking
 
 Requires a session. Decrements `copies_left`. At zero, the item moves to the shed.
