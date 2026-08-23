@@ -13,9 +13,16 @@ body {
   margin: 0; background: #fdfcf9; color: #14130d;
   font: 16px/1.5 ui-sans-serif, system-ui, -apple-system, "Helvetica Neue", sans-serif;
 }
+/* 16, not the 15 it was: the banner is chrome, and 16 is what the scale
+   gives chrome. .itemtext keeps 15 because it is content that has to sit
+   below .note's 17; the banner has nothing above it to stay under, so its
+   15 was an invented size and nothing else. It is also the most-seen type
+   in the product — every shelf and leave view for anyone holding a session
+   — which makes it the last place to read a pixel smaller than body text.
+   16/13 against its span now matches .row-label/.row-detail exactly. */
 .banner {
   background: #14130d; color: #fdfcf9; padding: 14px 18px;
-  font-size: 15px; font-weight: 600; line-height: 1.35;
+  font-size: 16px; font-weight: 600; line-height: 1.35;
 }
 .banner span { display: block; font-weight: 400; opacity: .72; font-size: 13px; margin-top: 3px; }
 main { padding: 26px 20px; max-width: 34rem; margin: 0 auto; }
@@ -178,7 +185,12 @@ a.row {
 a.row.last { border-bottom:none; }
 .row-label { font-size:16px; font-weight:600; }
 .row-detail { display:block; font-size:13px; font-weight:400; color:#6b6659; margin-top:3px; }
-.row-count { font:700 22px/1 ui-serif, Georgia, serif; flex-shrink:0; }
+/* 21, h2's size, not the 22 it was. A one-pixel difference from a size
+   already on the scale is the same difference the scale calls invisible
+   when it puts .consequence at 19 rather than 17 — so 22 bought nothing
+   and cost the scale a sixth entry. The serif face and 700 weight are what
+   make the count read as a count. */
+.row-count { font:700 21px/1 ui-serif, Georgia, serif; flex-shrink:0; }
 .tag { display:inline-block; font-size:13px; color:#6b6659; margin-right:10px; }
 @media (prefers-color-scheme: dark) {
   .item { border-color:#33302a; }
